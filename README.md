@@ -1,4 +1,9 @@
 # Adaptive MDeNM User Guide
+
+The MDeNM (Molecular Dynamics with excited Normal Modes) method consists of multiple-replica short MD simulations in which motions described by a given subset of low-frequency NMs are kinetically excited. This is achieved by adding additional atomic velocities along several randomly determined linear combinations of NM vectors, thus allowing an efficient coupling between slow and fast motions.
+
+This new approach, aMDeNM, automatically controls the energy injection and take the natural constraints imposed by the structure and the environment into account during protein conformational sampling, which prevent structural distortions all along the simulation.Due to the stochasticity of thermal motions, NM eigenvectors move away from the original directions when used to displace the protein, since the structure evolves into other potential energy wells. Therefore, the displacement along the modes is valid for small distances, but the displacement along greater distances may deform the structure of the protein if no care is taken. The advantage of this methodology is to adaptively change the direction used to displace the system, taking into account the structural and energetic constraints imposed by the system itself and the medium, which allows the system to explore new pathways.
+
 This document will give an overview of the Adaptive MDeNM method and help to properly setup and run a simulation.
 * ****
 
@@ -158,7 +163,7 @@ You can vizualize the trajectory of each replica with the VMD standard session a
 ## Citing
 Please consider to cite if you are using any Adaptive MDeNM application in your work:
 
-*[Resende-Lara, P. T. et al. Article title. Journal volume(issue), 1-999.](link)*
+[Resende-Lara, P. T. et al. *Adaptive collective motions: a hybrid method to improve conformational sampling with molecular dynamics and normal modes.* bioRxiv. doi: 10.1101/2022.11.29.517349](https://www.biorxiv.org/content/10.1101/2022.11.29.517349)
 
 [Back to top ↩](#)
 * ****

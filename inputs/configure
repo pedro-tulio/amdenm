@@ -35,7 +35,8 @@
 #% This program and it`s related content comes with ABSOLUTELY NO WARRANTY,to the extent permitted by applicable law.
 #%
 #% Citation:
-#%               Resende-Lara, P. T. et al. Journal volume(issue), 1-999.
+#%               Resende-Lara, P. T. et al. Adaptive collective motions: a hybrid method to improve conformational
+#%               sampling with molecular dynamics and normal modes. bioRxiv. doi: 10.1101/2022.11.29.517349.
 #%
 #=======================================================================================================================
 #  HISTORY
@@ -199,14 +200,17 @@ if [ $help = ON ] ; then
 	echo '	Author           Pedro Túlio de RESENDE-LARA'
 	echo '	Email            laraptr[at]unicamp.br'
 	echo '	License          CeCILL Free Software License (http://www.cecill.info/licences/Licence_CeCILL_V2-en.html)'
+	echo '	                 This program and it`s related content comes with ABSOLUTELY NO WARRANTY,'
+	echo '	                 to the extent permitted by applicable law.'
 	echo ' '
 	echo ' '
-	echo ' This program and it`s related content comes with ABSOLUTELY NO WARRANTY, to the extent permitted by applicable law.'
 	echo ' '
-#	echo ' '
-#	echo ' Citation:'
-#	echo '	                 Resende-Lara, P. T. et al. Journal volume(issue), 1-999.'
-#	echo ' '
+	echo ' '
+	echo ' Citation:'
+	echo ' '
+	echo '	Resende-Lara, P. T. et al. Adaptive collective motions: a hybrid method to improve conformational'
+	echo '	sampling with molecular dynamics and normal modes. bioRxiv. doi: 10.1101/2022.11.29.517349'
+	echo ' '
 fi
 
 # Cleaning
@@ -1906,12 +1910,13 @@ elif [ "$execenv" == "SLURM" ]; then
 	echo $pgmnam 'Plase make sure to appropriately edit the header of `model-slurm.job` file before execute MDeNM.'
 fi
 echo ' '
-#	echo ' '
-#	echo ' If this files are being useful, consider to cite:'
-#	echo ' '
-#	echo '		Resende-Lara, P. T. et al. Journal volume(issue), 1-999.'
-#	echo ' '
-#	echo ' '
+echo ' '
+echo ' If these files are being useful, please cite:'
+echo ' '
+echo '	Resende-Lara, P. T. et al. Adaptive collective motions: a hybrid method to improve conformational'
+echo '	sampling with molecular dynamics and normal modes. bioRxiv. doi: 10.1101/2022.11.29.517349'
+echo ' '
+echo ' '
 echo $pgmnam 'Configuration is done.'
 echo $pgmnam 'Normal end.'
 echo ' '

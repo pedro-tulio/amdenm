@@ -1,23 +1,26 @@
-* MOLECULAR DYNAMICS WITH EXCITED NORMAL MODES
+* ADAPTIVE MOLECULAR DYNAMICS WITH EXCITED NORMAL MODES
 *
 
-! The MDeNM (molecular dynamics with excited normal modes) method consists of multiple-replica
+! The MDeNM (Molecular Dynamics with excited Normal Modes) method consists of multiple-replica
 ! short MD simulations in which motions described by a given subset of low-frequency NMs are
 ! kinetically excited. This is achieved by adding additional atomic velocities along several
 ! randomly determined linear combinations of NM vectors, thus allowing an efficient coupling
-! between slow and fast motions. The relatively high-energy conformations generated with MDeNM
-! are further relaxed with standard MD simulations, enabling free energy landscapes to be determined.
-! MDeNM provides a larger extent of sampling in a few nanoseconds, outperforminglong standard MD
-! simulations. A high degree of correlation with motions inferred from experimental sources
-! (X-ray, EPR, and NMR) and with free energy estimations obtained by metadynamics was observed.
-! Finally, the large sets of conformations obtained with MDeNM can be used to better characterize
-! relevant dynamical populations, allowing for a better interpretation of experimental data such
-! as SAXS curves and NMR spectra.
+! between slow and fast motions.This new approach, aMDeNM, automatically controls the energy
+! injection and take the natural constraints imposed by the structure and the environment into
+! account during protein conformational sampling, which prevent structural distortions all along
+! the simulation.Due to the stochasticity of thermal motions, NM eigenvectors move away from the
+! original directions when used to displace the protein, since the structure evolves into other
+! potential energy wells. Therefore, the displacement along the modes is valid for small distances,
+! but the displacement along greater distances may deform the structure of the protein if no care
+! is taken. The advantage of this methodology is to adaptively change the direction used to
+! displace the system, taking into account the structural and energetic constraints imposed by the
+! system itself and the medium, which allows the system to explore new pathways.
 !
 ! Reference:
-! Costa MGS, Batista PR, Bisch PM, Perahia D. Exploring Free Energy Landscapes of Large Conformational Changes:
-! Molecular Dynamics with Excited Normal Modes. J Chem Theory Comput. 2015 May 5;11(6):2755-2767.
-! DOI: http://dx.doi.org/10.1021/acs.jctc.5b00003
+! Adaptive collective motions: a hybrid method to improve conformational sampling
+! with molecular dynamics and normal modes
+! P.T. Resende-Lara,  M.G.S. Costa, B. Dudas, D. Perahia.
+! DOI: https://doi.org/10.1101/2022.11.29.517349
 !
 
 ! How to run:
