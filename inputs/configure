@@ -1,0 +1,1919 @@
+#!/bin/bash
+#=======================================================================================================================
+# CONFIGURE: Setup a MDeNM simulation.
+#=======================================================================================================================
+#%
+#% Action: Setup a MDeNM simulation.
+#% Usage : ./'$pgmout' -o
+#%
+#% Main argument:
+#% 	-o(utput)     Start the MDeNM configuration
+#%
+#% Options:
+#% 	-c(lean)      Remove any previous configuration
+#% 	-h(elp)       Display this message and exit
+#%
+#% MDeNM applications:
+#% 	DIHE          Excite the system with C-alpha dihedral angles perturbations.
+#% 	ENM           Excite the system with C-alpha ENM modes (elNémo).
+#% 	PFF           Excite the system with physical force-field based normal modes (CHARMM).
+#% 	PFF+LOCAL     Combine PFF and LOCAL modes to excite the system.
+#% 	PFF+DIHE      Combine PFF modes and dihedral perturbations to excite the system.
+#% 	PFF+PFF       Combine two different sets of PFF modes to excite the system.
+#% 	CUSTOM        Excite the system with user-provided vectors (.xyz and/or .crd extensions).
+#% 	PFF+CUSTOM    Combine PFF modes and custom vectors to excite the system.
+#% 	CUSTOM+LOCAL  Combine custom vectors and LOCAL modes to excite the system.
+#% 	CUSTOM+DIHE   Combine custom vectors and dihedral perturbations to excite the system.
+#%
+#=======================================================================================================================
+#% Implementation:
+#%	version      '$pgmout' v1.03, Mar 2021.
+#%	author       Pedro Túlio de RESENDE-LARA
+#%	email        pedro.lara[at]ufabc.edu.br
+#%	license      CeCILL Free Software License (http://www.cecill.info/licences/Licence_CeCILL_V2-en.html)
+#%
+#% This program and it`s related content comes with ABSOLUTELY NO WARRANTY,to the extent permitted by applicable law.
+#%
+#% Citation:
+#%               Resende-Lara, P. T. et al. Journal volume(issue), 1-999.
+#%
+#=======================================================================================================================
+#  HISTORY
+#     02/26/2018: ptresendelara : Script creation
+#     09/18/2018: ptresendelara : Script update
+#     03/19/2021: ptresendelara : Script update and optimization
+#
+#=======================================================================================================================
+#
+#=======================================================================================================================
+# END_OF_HEADER
+#=======================================================================================================================
+
+version='v1.03, Mar 2021'
+
+pgmprf='configure'
+pgmnam='+'$pgmprf'> '
+pgmwrn='%'$pgmprf'-Wrn> '
+pgmerr='%'$pgmprf'-Err> '
+
+echo ' '
+tput bold
+tput rev
+tput setaf 6
+echo $pgmnam 'Setup a MDeNM simulation.'
+tput sgr0
+tput bold
+echo $pgmnam $version
+tput sgr0
+echo ' '
+
+# Arguments and options are read:
+# -------------------------------
+
+# File list to finish the run:
+lstfil=NONE
+if [ $# -gt 0 ]
+then
+help=OFF
+clean=OFF
+quit=OFF
+nargrd=$#
+nargs=0
+init=0
+while [ $nargs -lt $nargrd ]
+do
+# Reading the options:
+  cmd=`echo '+'$1 | tr '[A-Z]' '[a-z]' | sed 's/+//'`
+  case $cmd in
+ '-h'|'-help')
+   help=ON
+   quit=ON
+   nargs=$(( $nargs + 1 ))
+  ;;
+  *)
+  if [ $# -le 2 ] ; then
+  nargs=$(( $nargs - 1 ))
+  case $cmd in
+ '-o'|'-output')
+  clean=ON
+  nargs=$nargrd
+  lstfil=FOUND
+  ;;
+ '-c'|'-clean')
+  clean=ON
+  quit=ON
+  nargs=$nargrd
+  lstfil=FOUND
+  ;;
+ '-r'|'-restart')
+  clean=OFF
+  quit=ON
+  nargs=$nargrd
+  lstfil=FOUND
+  init=1
+  ;;
+ '-a'|'-append')
+  clean=OFF
+  quit=ON
+  nargs=$nargrd
+  lstfil=FOUND
+  init=2
+  ;;
+  *)
+  echo ' '
+  tput setaf 1
+  echo $pgmerr $cmd 'is not an expected option.'
+  tput sgr0
+  echo ' '
+  lstfil=FOUND
+  nargs=$nargrd
+  help=ON
+  quit=ON
+  ;;
+  esac
+  # Next argument:
+  if [ $lstfil = NONE ] ; then shift ; fi
+  else
+  echo ' '
+  echo $pgmerr $cmd 'is the last argument ?'
+  nargs=$(( $nargs + 1 ))
+  help=OFF
+  fi
+  ;;
+  esac
+# Next argument:
+  shift
+done
+# No argument:
+else
+help=ON
+quit=ON
+fi
+
+if [ $lstfil = NONE -a $help = OFF ] ; then
+  echo ' '
+  tput setaf 1
+  echo $pgmerr '-o filename: required.'
+  tput sgr0
+  echo ' '
+  help=ON
+  quit=ON
+fi
+
+# Printing help
+if [ $help = ON ] ; then
+	pgmout=`echo $pgmprf | tr '[A-Z]' '[a-z]'`
+	tput bold
+	echo ' Action: Setup or cleanup a MDeNM simulation.'
+	echo ' Usage : ./'$pgmout' -{arg}'
+	tput sgr0
+	echo ' '
+	echo ' Main argument:'
+	echo '	-o,  -output     Start the MDeNM configuration.'
+	echo ' '
+	echo ' Options:'
+	echo '	-c,  -clean      Remove any previous configuration.'
+	echo '	-h,  -help       Display this message and exit.'
+	echo '	-r,  -restart    Restart a MDeNM run that has stopped before the ending point.'
+	echo '	-a,  -append     Append a MDeNM run, incrementing the simulation total time.'
+	echo ' '
+	tput bold
+	echo ' MDeNM applications:'
+	tput setaf 6
+	echo ' '
+	echo '	01) DIHE.......................Excite the system with C-alpha dihedral angles perturbations.'
+	echo '	02) ENM........................Excite the system with C-alpha ENM modes (elNémo).'
+	echo '	03) PFF........................Excite the system with physical force-field based normal modes (CHARMM).'
+	echo '	04) PFF+LOCAL..................Combine PFF and LOCAL modes to excite the system.'
+	echo '	05) PFF+DIHE...................Combine PFF modes and dihedral perturbations to excite the system.'
+	echo '	06) PFF+PFF....................Combine two different sets of PFF modes to excite the system.'
+	echo '	07) CUSTOM.....................Excite the system with user-provided vectors (.xyz and/or .crd extensions).'
+	echo '	08) PFF+CUSTOM.................Combine PFF modes and custom vectors to excite the system.'
+	echo '	09) CUSTOM+LOCAL...............Combine custom vectors and LOCAL modes to excite the system.'
+	echo '	10) CUSTOM+DIHE................Combine custom vectors and dihedral perturbations to excite the system.'
+	tput sgr0
+	echo ' '
+	echo ' '
+	echo ' Implementation:'
+	echo '	Version          '$pgmout' '$version'.'
+	echo '	Author           Pedro Túlio de RESENDE-LARA'
+	echo '	Email            laraptr[at]unicamp.br'
+	echo '	License          CeCILL Free Software License (http://www.cecill.info/licences/Licence_CeCILL_V2-en.html)'
+	echo ' '
+	echo ' '
+	echo ' This program and it`s related content comes with ABSOLUTELY NO WARRANTY, to the extent permitted by applicable law.'
+	echo ' '
+#	echo ' '
+#	echo ' Citation:'
+#	echo '	                 Resende-Lara, P. T. et al. Journal volume(issue), 1-999.'
+#	echo ' '
+fi
+
+# Cleaning
+if [ $clean = ON ] ; then
+	# Remove any residual files of a previuos run
+	rm -rf *.{out,tmp,vec,xyz,coor,vel,txt,mod,str,psf} toppar*
+	rm -rf ../{struct-list,rep*,enm,local,dihe,custom}
+	rm -f ../{mdenm-run,run.sh}
+	rm -f ../modules/*2.mdu
+
+	# Remove residual editions
+	sed -i 's/.*set rsttype.*//' ../src/mdenm*.inp
+	sed -i 's/.*set rstfile.*//' ../src/mdenm*.inp
+	sed -i 's/.*set rstcoorfile.*//' ../src/mdenm*.inp
+	sed -i 's/.*set rstvelofile.*//' ../src/mdenm*.inp
+	sed -i 's/.*set psffile.*//' ../src/mdenm*.inp
+	sed -i 's/.*set pbcfile.*//' ../src/mdenm*.inp
+	sed -i 's/.*set watfile.*//' ../src/mdenm*.inp
+	sed -i 's/.*set topfile.*//' ../src/mdenm*.inp
+	sed -i 's/.*set init.*//' ../src/mdenm*.inp
+	sed -i 's/.*set type.*//' ../src/mdenm*.inp
+	sed -i 's/.*set ekuser1.*//' ../src/mdenm*.inp
+	sed -i 's/.*set ekuser2.*//' ../src/mdenm*.inp
+	sed -i 's/.*set timeuser.*//' ../src/mdenm*.inp
+	sed -i 's/.*set output.*//' ../src/mdenm*.inp
+	sed -i 's/.*set diherecalc.*//' ../src/mdenm*.inp
+	sed -i 's/.*set dihefreq.*//' ../src/mdenm*.inp
+	sed -i 's/.*set globcor.*//' ../src/mdenm*.inp
+	sed -i 's/.*set globfreq.*//' ../src/mdenm*.inp
+	sed -i 's/.*set loccor.*//' ../src/mdenm*.inp
+	sed -i 's/.*set localfreq.*//' ../src/mdenm*.inp
+	sed -i 's/.*set enmrecalc.*//' ../src/mdenm*.inp
+	sed -i 's/.*set enmfreq.*//' ../src/mdenm*.inp
+	sed -i 's/.*set rmsthreshold.*//' ../src/mdenm*.inp
+	sed -i '/PFF NMA calculation/,/perturb the dihedral angles/{//!d}' ../src/mdenm*.inp
+	sed -i '/perturb the dihedral angles/,/ENM or LOCAL NM calculations/{//!d}' ../src/mdenm*.inp
+	sed -i '/ENM or LOCAL NM calculations/,/apply the filtering/{//!d}' ../src/mdenm*.inp
+	sed -i '/apply the filtering/,/membrane, solvent and ions/{//!d}' ../src/mdenm*.inp
+	sed -i 's/.*set rsttype.*//' ../modules/md.mdu
+	sed -i 's/.*set rstfile.*//' ../modules/md.mdu
+	sed -i 's/.*set rstcoorfile.*//' ../modules/md.mdu
+	sed -i 's/.*set rstvelofile.*//' ../modules/md.mdu
+	sed -i 's/.*set psffile.*//' ../modules/md.mdu
+	sed -i 's/.*set pbcfile.*//' ../modules/md.mdu
+	sed -i 's/.*set watfile.*//' ../modules/md.mdu
+	sed -i 's/.*set topfile.*//' ../modules/md.mdu
+	sed -i '/PFF NMA calculation/,/Remove all atoms/{//!d}' ../modules/wrt-nm.mdu
+	sed -i 's/.*psffile=.*//' ../src/enm-comp
+	sed -i 's/.*topfile=.*//' ../src/enm-comp
+	sed -i 's/.*prtn=.*//' ../src/enm-comp
+	sed -i 's/srun //' ../src/enm-comp
+	sed -i 's/.*psffile=.*//' ../src/dihe-comp
+	sed -i 's/.*topfile=.*//' ../src/dihe-comp
+	sed -i 's/.*prtn=.*//' ../src/dihe-comp
+	sed -i 's/srun //' ../src/dihe-comp
+	sed -i 's/.*psffile=.*//' ../modules/local-run.mdu
+	sed -i 's/.*topfile=.*//' ../modules/local-run.mdu
+	sed -i 's/.*prtn=.*//' ../modules/local-run.mdu
+	sed -i 's/.*slct=.*//' ../modules/local-run.mdu
+	sed -i 's/.*vec=.*//' ../modules/local-run.mdu
+	sed -i 's/srun //' ../modules/local-run.mdu
+	sed -i 's/.*psffile=.*//' ../modules/xyz2crd.mdu
+	sed -i 's/.*topfile=.*//' ../modules/xyz2crd.mdu
+	sed -i 's/.*rstfile=.*//' ../modules/xyz2crd.mdu
+	sed -i 's/.*set modfile.*//' ../modules/wrt-nm.mdu
+	sed -i 's/.*set psffile.*//' ../modules/wrt-nm.mdu
+	sed -i 's/.*set topfile.*//' ../modules/wrt-nm.mdu
+	sed -i 's/.*define PRTN.*//' ../modules/wrt-nm.mdu
+	sed -i 's/.*set topfile.*//' ../modules/pdb2dcd.mdu
+	sed -i 's/.*set psffile.*//' ../modules/pdb2dcd.mdu
+	sed -i 's/.*vec=.*//' ../modules/enm-run.mdu
+	sed -i 's/SLCT/PRTN/g' ../modules/*
+	sed -i 's/SLCT/PRTN/g' ../lib/*
+	sed -i 's/PRTN/SLCT/g' ../modules/local-run.mdu
+	sed -i "0,/SLCT/{s/SLCT/PRTN/}" ../modules/local-run.mdu
+	sed -i 's/srun charmm -i/charmm -i/g' ../src/*
+	sed -i 's/srun charmm -i/charmm -i/g' ../modules/*
+	sed -i 's/.*continue=.*//' ../modules/continue-mdenm.mdu
+	sed -i 's/.*addtime=.*//' ../modules/continue-mdenm.mdu
+	echo ' '
+	echo $pgmnam 'Cleaning is done.'
+	echo ' '
+fi
+
+# Restart or append the simulation
+if [ $init -eq 1 ]; then
+	sed -i '/Define the running status/{n;s/.*/set init '$init'/}' ../src/mdenm*.inp
+	sed -i '/Set the restarting method/{n;s/.*/continue=1/}' ../modules/continue-mdenm.mdu
+	echo ' '
+	echo $pgmnam 'Ready to restart the simulation.'
+	echo ' '
+
+	sed -i '/mkdir/d' ../mdenm-run
+	sed -i '/touch/d' ../mdenm-run
+	sed -i '/sed/d' ../mdenm-run
+elif [ $init -eq 2 ]; then
+	sed -i '/Define the running status/{n;s/.*/set init '$init'/}' ../src/mdenm*.inp
+	sed -i '/Set the restarting method/{n;s/.*/continue=2/}' ../modules/continue-mdenm.mdu
+
+	# Requires the new simulation time
+	echo ' '
+	tput bold
+	tput rev
+	echo $pgmnam 'Enter the additional simulation time (ps):'
+	tput sgr0
+	read -p '#? ' time
+	while ! [ $time -gt 0 ] 2>/dev/null; do
+		tput setaf 1
+		echo $pgmwrn 'Invalid value. Integer number required. Try again.'
+		tput sgr0
+		read -p '#? ' time
+	done
+	multime=$(echo $time*10 | bc); multime=$(echo ${multime%.*})
+	sed -i '/set the additional simulation time/{n;s/.*/  addtime='$multime'/}' ../modules/continue-mdenm.mdu
+	echo ' '
+	echo $pgmnam 'Ready to restart the simulation.'
+	echo ' '
+
+	sed -i '/mkdir/d' ../mdenm-run
+	sed -i '/touch/d' ../mdenm-run
+fi
+
+# Quit
+if [ $quit = ON ] ; then
+	exit
+fi
+
+
+####################################################################################################
+###############################     PRODUCE THE MDENM INPUT FILES     ##############################
+####################################################################################################
+
+# Configure the running status to start from the beginning
+sed -i '/Define the running status/{n;s/.*/set init '$init'/}' ../src/mdenm*.inp
+
+# Selects one between MDeNM applications
+tput setaf 2
+tput bold
+tput rev
+echo $pgmnam 'Select one between MDeNM applications:'
+tput sgr0
+echo ' '
+echo '01) DIHE.......................Excite the system with C-alpha dihedral angles perturbations.'
+echo '02) ENM........................Excite the system with C-alpha ENM modes (elNémo).'
+echo '03) PFF........................Excite the system with physical force-field based normal modes (CHARMM).'
+echo '04) PFF+LOCAL..................Combine PFF and LOCAL modes to excite the system.'
+echo '05) PFF+DIHE...................Combine PFF modes and dihedral perturbations to excite the system.'
+echo '06) PFF+PFF....................Combine two different sets of PFF modes to excite the system.'
+echo '07) CUSTOM.....................Excite the system with user-provided vectors (.xyz and/or .crd extensions).'
+echo '08) PFF+CUSTOM.................Combine PFF modes and custom vectors to excite the system.'
+echo '09) CUSTOM+LOCAL...............Combine custom vectors and LOCAL modes to excite the system.'
+echo '10) CUSTOM+DIHE................Combine custom vectors and dihedral perturbations to excite the system.'
+echo ' '
+options=("DIHE" "ENM" "PFF" "PFF+LOCAL" "PFF+DIHE" "PFF+PFF" "CUSTOM" "PFF+CUSTOM" "CUSTOM+LOCAL" "CUSTOM+DIHE")
+select opt in "${options[@]}"; do
+    case $opt in
+	    ${options[0]} ) opt=0; sed -i '/Choose the MDeNM application/{n;s/.*/set type 0/}' ../src/mdenm*.inp; mkdir ../dihe; break;;
+	    ${options[1]} ) opt=1; sed -i '/Choose the MDeNM application/{n;s/.*/set type 1/}' ../src/mdenm*.inp; mkdir ../enm; break;;
+	    ${options[2]} ) opt=2; sed -i '/Choose the MDeNM application/{n;s/.*/set type 2/}' ../src/mdenm*.inp; break;;
+	    ${options[3]} ) opt=3; sed -i '/Choose the MDeNM application/{n;s/.*/set type 3/}' ../src/mdenm*.inp; mkdir ../local; break;;
+	    ${options[4]} ) opt=4; sed -i '/Choose the MDeNM application/{n;s/.*/set type 4/}' ../src/mdenm*.inp; mkdir ../dihe; break;;
+	    ${options[5]} ) opt=5; sed -i '/Choose the MDeNM application/{n;s/.*/set type 5/}' ../src/mdenm*.inp; break;;
+	    ${options[6]} ) opt=6; sed -i '/Choose the MDeNM application/{n;s/.*/set type 6/}' ../src/mdenm*.inp; mkdir ../custom; break;;
+	    ${options[7]} ) opt=7; sed -i '/Choose the MDeNM application/{n;s/.*/set type 7/}' ../src/mdenm*.inp; mkdir ../custom; break;;
+	    ${options[8]} ) opt=8; sed -i '/Choose the MDeNM application/{n;s/.*/set type 8/}' ../src/mdenm*.inp; mkdir ../custom; mkdir ../local; break;;
+	    ${options[9]} ) opt=9; sed -i '/Choose the MDeNM application/{n;s/.*/set type 9/}' ../src/mdenm*.inp; mkdir ../custom; mkdir ../dihe; break;;
+	    * ) tput setaf 1; echo $pgmwrn 'Invalid option.'; tput sgr0;;
+    esac
+done
+echo ' '
+
+# ------------------------------------------------ #
+# REQUIRES THE ENERGY VALUE TO EXCITATE THE SYSTEM #
+# ------------------------------------------------ #
+
+echo ' '
+# DIHE, ENM, PFF or CUSTOM simulations
+if [ $opt -lt 3 ] || [ $opt -eq 6 ]; then
+	tput bold
+	tput rev
+	echo $pgmnam 'Enter an energy amount (kcal) to excite the system:'
+	tput sgr0
+	read -p '#? ' ener
+	ener=$(echo "$ener" | tr '*' ' ' | tr ',' '.'); chartst=$(echo $ener | sed '/[^[:digit:].+-]/d')
+	while [ -z "$chartst" ] 2>/dev/null || (( $(echo "$ener <= 0" | bc) )); do
+		tput setaf 1
+	    echo $pgmwrn 'Invalid value. Positive value required. Try again.'
+		tput sgr0
+	read -p '#? ' ener
+		ener=$(echo "$ener" | tr '*' ' ' | tr ',' '.'); chartst=$(echo $ener | sed '/[^[:digit:].+-]/d')
+	done
+	sed -i '/Get the main excitation energy/{n;s/.*/set ekuser1 '$ener'/}' ../src/mdenm*.inp
+# PFF+LOCAL of CUSTOM+LOCAL simulations
+elif [ $opt -eq 3 ] || [ $opt -eq 8 ]; then
+	tput bold
+	tput rev
+	if [ $opt -eq 3 ]; then echo $pgmnam 'Enter an energy amount (kcal) to excite the PFF modes:'; fi
+	if [ $opt -eq 8 ]; then echo $pgmnam 'Enter an energy amount (kcal) to excite the CUSTOM vectors:'; fi
+	tput sgr0
+	read -p '#? ' ener
+	ener=$(echo "$ener" | tr '*' ' ' | tr ',' '.'); chartst=$(echo $ener | sed 's/[^0-9]*//g')
+	while [ -z "$chartst" ] 2>/dev/null || (( $(echo "$ener <= 0" | bc) )); do
+		tput setaf 1
+		echo $pgmwrn 'Invalid value. Positive value required. Try again.'
+		tput sgr0
+		read -p '#? ' ener
+		ener=$(echo "$ener" | tr '*' ' ' | tr ',' '.'); chartst=$(echo $ener | sed 's/[^0-9]*//g')
+	done
+	sed -i '/Get the main excitation energy/{n;s/.*/set ekuser1 '$ener'/}' ../src/mdenm*.inp
+	echo ' '
+	echo ' '
+	tput bold
+	tput rev
+	echo $pgmnam 'Enter an energy amount (kcal) to excite the LOCAL modes:'
+	tput sgr0
+	read -p '#? ' ener
+	ener=$(echo "$ener" | tr '*' ' ' | tr ',' '.'); chartst=$(echo $ener | sed 's/[^0-9]*//g')
+	while [ -z "$chartst" ] 2>/dev/null || (( $(echo "$ener <= 0" | bc) )); do
+	    tput setaf 1
+		echo $pgmwrn 'Invalid value. Positive value required. Try again.'
+		tput sgr0
+		read -p '#? ' ener
+		ener=$(echo "$ener" | tr '*' ' ' | tr ',' '.'); chartst=$(echo $ener | sed 's/[^0-9]*//g')
+	done
+	sed -i '/Get the secondary excitation energy/{n;s/.*/set ekuser2 '$ener'/}' ../src/mdenm*.inp
+# PFF+DIHE of CUSTOM+DIHE simulations
+elif [ $opt -eq 4 ] || [ $opt -eq 9 ]; then
+	tput bold
+	tput rev
+	if [ $opt -eq 4 ]; then echo $pgmnam 'Enter an energy amount (kcal) to excite the PFF modes:'; fi
+	if [ $opt -eq 9 ]; then echo $pgmnam 'Enter an energy amount (kcal) to excite the CUSTOM vectors:'; fi
+	tput sgr0
+	read -p '#? ' ener
+	ener=$(echo "$ener" | tr '*' ' ' | tr ',' '.'); chartst=$(echo $ener | sed 's/[^0-9]*//g')
+	while [ -z "$chartst" ] 2>/dev/null || (( $(echo "$ener <= 0" | bc) )); do
+		tput setaf 1
+		echo $pgmwrn 'Invalid value. Positive value required. Try again.'
+		tput sgr0
+		read -p '#? ' ener
+		ener=$(echo "$ener" | tr '*' ' ' | tr ',' '.'); chartst=$(echo $ener | sed 's/[^0-9]*//g')
+	done
+	sed -i '/Get the main excitation energy/{n;s/.*/set ekuser1 '$ener'/}' ../src/mdenm*.inp
+	echo ' '
+	echo ' '
+	tput bold
+	tput rev
+	echo $pgmnam 'Enter an energy amount (kcal) to excite dihedral perturbations:'
+	tput sgr0
+	read -p '#? ' ener
+	ener=$(echo "$ener" | tr '*' ' ' | tr ',' '.'); chartst=$(echo $ener | sed 's/[^0-9]*//g')
+	while [ -z "$chartst" ] 2>/dev/null || (( $(echo "$ener <= 0" | bc) )); do
+	    tput setaf 1
+	    echo $pgmwrn 'Invalid value. Positive value required. Try again.'
+		tput sgr0
+		read -p '#? ' ener
+		ener=$(echo "$ener" | tr '*' ' ' | tr ',' '.'); chartst=$(echo $ener | sed 's/[^0-9]*//g')
+	done
+	sed -i '/Get the secondary excitation energy/{n;s/.*/set ekuser2 '$ener'/}' ../src/mdenm*.inp
+# PFF+PFF of PFF+CUSTOM simulations
+elif [ $opt -eq 5 ] || [ $opt -eq 7 ]; then
+	tput bold
+	tput rev
+	echo $pgmnam 'Enter an energy amount (kcal) to excite collective PFF modes:'
+	tput sgr0
+	read -p '#? ' ener
+	ener=$(echo "$ener" | tr '*' ' ' | tr ',' '.'); chartst=$(echo $ener | sed 's/[^0-9]*//g')
+	while [ -z "$chartst" ] 2>/dev/null || (( $(echo "$ener <= 0" | bc) )); do
+		tput setaf 1
+		echo $pgmwrn 'Invalid value. Positive value required. Try again.'
+		tput sgr0
+		read -p '#? ' ener
+		ener=$(echo "$ener" | tr '*' ' ' | tr ',' '.'); chartst=$(echo $ener | sed 's/[^0-9]*//g')
+	done
+	sed -i '/Get the main excitation energy/{n;s/.*/set ekuser1 '$ener'/}' ../src/mdenm*.inp
+	echo ' '
+	echo ' '
+	tput bold
+	tput rev
+	if [ $opt -eq 5 ]; then echo $pgmnam 'Enter an energy amount (kcal) to excite the local PFF modes:'; fi
+	if [ $opt -eq 7 ]; then echo $pgmnam 'Enter an energy amount (kcal) to excite the local CUSTOM vectors:'; fi
+	tput sgr0
+	read -p '#? ' ener
+	ener=$(echo "$ener" | tr '*' ' ' | tr ',' '.'); chartst=$(echo $ener | sed 's/[^0-9]*//g')
+	while [ -z "$chartst" ] 2>/dev/null || (( $(echo "$ener <= 0" | bc) )); do
+	    tput setaf 1
+	    echo $pgmwrn 'Invalid value. Positive value required. Try again.'
+		tput sgr0
+		read -p '#? ' ener
+		ener=$(echo "$ener" | tr '*' ' ' | tr ',' '.'); chartst=$(echo $ener | sed 's/[^0-9]*//g')
+	done
+	sed -i '/Get the secondary excitation energy/{n;s/.*/set ekuser2 '$ener'/}' ../src/mdenm*.inp
+fi
+echo ' '
+
+# Requires the simulation time
+echo ' '
+tput bold
+tput rev
+echo $pgmnam 'Enter the total simulation time (ps):'
+tput sgr0
+read -p '#? ' time
+while ! [ $time -gt 0 ] 2>/dev/null; do
+	tput setaf 1
+	echo $pgmwrn 'Invalid value. Integer number required. Try again.'
+	tput sgr0
+	read -p '#? ' time
+done
+multime=$(echo $time*10 | bc); multime=$(echo ${multime%.*})
+sed -i '/Get the simulation time/{n;s/.*/set timeuser '$time'/}' ../src/mdenm*.inp
+echo ' '
+
+# -------------------------------------------- #
+# NORMAL MODES CORRECTION AND/OR RECALCULATION #
+# -------------------------------------------- #
+
+# Setup the DIHE recalculation
+if [ $opt -eq 0 ]; then
+	echo ' '
+	tput setaf 2
+	tput bold
+	tput rev
+	echo $pgmnam 'Recalculate dihedral perturbations?'
+	tput sgr0
+	echo ' '
+	options=("YES" "NO")
+	select diherecalc in "${options[@]}"; do
+		case $diherecalc in
+			${options[0]} )
+				sed -i '/Setup DIHE recalculation/{n;s/.*/set diherecalc 1/}' ../src/mdenm*.inp
+				echo ' '
+				tput bold
+				tput rev
+				echo $pgmnam 'How often to recalculate dihedral perturbations (ps)?'
+				tput sgr0
+				read -p '#? ' dihefreq
+				dihefreq=$(echo $dihefreq | tr ',' '.'); chartst=$(echo $dihefreq | sed 's/[^0-9]*//g')
+				if ! [ -z "$chartst" ] 2>/dev/null; then freq=$(echo $dihefreq*10 | bc); freq=$(echo ${freq%.*}); fi
+				while [ -z "$chartst" ] 2>/dev/null || [ $freq -le 0 ] 2>/dev/null || [ $freq -ge $multime ] 2>/dev/null; do
+					tput setaf 1
+					echo $pgmwrn 'Invalid value. Please insert a non-zero value less than '$time'ps.'
+					tput sgr0
+					read -p '#? ' dihefreq
+					dihefreq=$(echo $dihefreq | tr ',' '.'); chartst=$(echo $dihefreq | sed 's/[^0-9]*//g')
+					if ! [ -z "$chartst" ] 2>/dev/null; then freq=$(echo $dihefreq*10 | bc); freq=$(echo ${freq%.*}); fi
+				done
+				sed -i '/Frequency of DIHE recalculation/{n;s/.*/set dihefreq '$freq'/}' ../src/mdenm*.inp
+				break;;
+
+			${options[1]} ) sed -i '/Setup DIHE recalculation/{n;s/.*/set diherecalc 0/}' ../src/mdenm*.inp; break;;
+			* ) tput setaf 1; echo $pgmwrn 'Invalid option.'; tput sgr0;;
+		esac
+	done
+  echo ' '
+# Setup the collective directions correction
+elif [ $opt -ge 1 ]; then
+	echo ' '
+	tput setaf 2
+	tput bold
+	tput rev
+	if [ $opt -eq 1 ]; then echo $pgmnam 'Correct ENM directions?'; fi
+	if [ $opt -ge 2 ] && [ $opt -le 5 ] || [ $opt -eq 7 ]; then echo $pgmnam 'Correct PFF directions?'; fi
+	if [ $opt -eq 6 ] || [ $opt -ge 8 ]; then echo $pgmnam 'Correct CUSTOM vector directions?'; fi
+	tput sgr0
+	echo ' '
+	options=("YES" "NO")
+	select globcor in "${options[@]}"; do
+		case $globcor in
+			${options[0]} )
+				sed -i '/Setup collective NM correction/{n;s/.*/set globcor 1/}' ../src/mdenm*.inp
+				tput bold
+				tput rev
+				if [ $opt -eq 1 ]; then echo $pgmnam 'Which distance must be displaced to correct ENM directions (Å)?'; fi
+				if [ $opt -eq 6 ] || [ $opt -ge 8 ]; then echo $pgmnam 'Which distance must be displaced to correct CUSTOM vector directions (Å)?'; fi
+				tput sgr0
+				if [ $opt -ge 2 ] && [ $opt -le 5 ] || [ $opt -eq 7 ]; then
+					correc=0.5
+				else
+					echo ' '
+					read -p '#? ' correc; fi
+				correc=$(echo $correc | tr '*' ' ' | tr ',' '.'); chartst=$(echo $correc | sed 's/[^0-9]*//g')
+				while [ -z "$chartst" ] 2>/dev/null || [ $correc -le 0 ] 2>/dev/null; do
+					tput setaf 1
+					echo $pgmwrn 'Invalid value. Positive value required. Try again.'
+					tput sgr0
+					read -p '#? ' correc
+					correc=$(echo $correc | tr '*' ' ' | tr ',' '.'); chartst=$(echo $correc | sed 's/[^0-9]*//g')
+				done
+				sed -i '/Displacement along vector Q to evaluate the MDeNM path/{n;s/.*/set globfreq '$correc'/}' ../src/mdenm*.inp
+				break;;
+
+			${options[1]} ) sed -i '/Setup collective NM correction/{n;s/.*/set globcor 0/}' ../src/mdenm*.inp; break;;
+
+			* ) tput setaf 1; echo $pgmwrn 'Invalid option.'; tput sgr0;;
+		esac
+	done
+	# Setup the ENM recalculation in ENM only simulations
+	if [ $opt -eq 1 ]; then
+		echo ' '
+		tput setaf 2
+		tput bold
+		tput rev
+		echo $pgmnam 'Recalculate ENM modes?'
+		tput sgr0
+		echo ' '
+		options=("YES" "NO")
+		select enmrecalc in "${options[@]}"; do
+			case $enmrecalc in
+				${options[0]} )
+					sed -i '/Setup ENM recalculation/{n;s/.*/set enmrecalc 1/}' ../src/mdenm*.inp
+					echo ' '
+					tput bold
+					tput rev
+					echo $pgmnam 'How often to recalculate ENM modes (ps)?'
+					tput sgr0
+					read -p '#? ' enmfreq
+					enmfreq=$(echo $enmfreq | tr ',' '.'); chartst=$(echo $enmfreq | sed 's/[^0-9]*//g')
+					if ! [ -z "$chartst" ] 2>/dev/null; then freq=$(echo $enmfreq*10 | bc); freq=$(echo ${freq%.*}); fi
+					if [ "$globcor" == "YES" ]; then
+						while [ -z "$chartst" ] 2>/dev/null || [ $freq -ge $multime ] 2>/dev/null || [ $freq -le $collec ] 2>/dev/null; do
+							tput setaf 1
+							echo $pgmwrn 'Invalid value. Please insert a value between '$correc'ps and '$time'ps.'
+							tput sgr0
+							read -p '#? ' enmfreq
+							enmfreq=$(echo $enmfreq | tr ',' '.'); chartst=$(echo $enmfreq | sed 's/[^0-9]*//g')
+							if ! [ -z "$chartst" ] 2>/dev/null; then freq=$(echo $enmfreq*10 | bc); freq=$(echo ${freq%.*}); fi
+						done
+					else
+						while [ -z "$chartst" ] 2>/dev/null || [ $freq -le 0 ] 2>/dev/null || [ $freq -ge $multime ] 2>/dev/null; do
+							tput setaf 1
+							echo $pgmwrn 'Invalid value. Please insert a non-zero value less than '$time'ps.'
+							tput sgr0
+							read -p '#? ' enmfreq
+							enmfreq=$(echo $enmfreq | tr ',' '.'); chartst=$(echo $enmfreq | sed 's/[^0-9]*//g')
+							if ! [ -z "$chartst" ] 2>/dev/null; then freq=$(echo $enmfreq*10 | bc); freq=$(echo ${freq%.*}); fi
+						done
+					fi
+					sed -i '/Frequency of ENM recalculation/{n;s/.*/set enmfreq '$freq'/}' ../src/mdenm*.inp
+					break;;
+
+				${options[1]} ) sed -i '/Setup ENM recalculation/{n;s/.*/set enmrecalc 0/}' ../src/mdenm*.inp; break;;
+				* ) tput setaf 1; echo $pgmwrn 'Invalid option.'; tput sgr0;;
+			esac
+		done
+	fi
+	# Setup the LOCAL recalculation in PFF+LOCAL or CUSTOM+LOCAL simulations
+	if [ $opt -eq 3 ] || [ $opt -eq 8 ]; then
+		echo ' '
+		tput setaf 2
+		tput bold
+		tput rev
+		echo $pgmnam 'Recalculate LOCAL modes?'
+		tput sgr0
+		echo ' '
+		options=("YES" "NO")
+		select loccor in "${options[@]}"; do
+			case $loccor in
+				${options[0]} )
+				sed -i '/Setup local NM correction/{n;s/.*/set loccor 1/}' ../src/mdenm*.inp
+				echo ' '
+				tput bold
+				tput rev
+				echo $pgmnam 'How often to recalculate LOCAL modes (ps)?'
+				tput sgr0
+				read -p '#? ' local
+				local=$(echo $local | tr ',' '.'); chartst=$(echo $local | sed 's/[^0-9]*//g')
+				if ! [ -z "$chartst" ] 2>/dev/null; then locl=$(echo $local*10 | bc); locl=$(echo ${locl%.*}); fi
+				while [ -z "$chartst" ] 2>/dev/null || [ $locl -le 0 ] 2>/dev/null || [ $locl -gt $collec ] 2>/dev/null; do
+					tput setaf 1
+					echo $pgmwrn 'Invalid value. Please insert a non-zero value lesser or equal than '$correc'ps.'
+					tput sgr0
+					read -p '#? ' local
+					local=$(echo $local | tr ',' '.'); chartst=$(echo $local | sed 's/[^0-9]*//g')
+					if ! [ -z "$chartst" ] 2>/dev/null; then locl=$(echo $local*10 | bc); locl=$(echo ${locl%.*}); fi
+				done
+				sed -i '/Frequency of local NM correction/{n;s/.*/set localfreq '$locl'/}' ../src/mdenm*.inp
+				break;;
+
+				${options[1]} ) sed -i '/Setup local NM correction/{n;s/.*/set loccor 0/}' ../src/mdenm*.inp; break;;
+
+				* ) tput setaf 1; echo $pgmwrn 'Invalid option.'; tput sgr0;;
+			esac
+		done
+	fi
+	# Setup the DIHE recalculation in PFF+DIHE or CUSTOM+DIHE simulations
+	if [ $opt -eq 4 ] || [ $opt -eq 9 ]; then
+	  	echo ' '
+	  	tput setaf 2
+		tput bold
+		tput rev
+	 	echo $pgmnam 'Recalculate dihedral perturbations?'
+	 	tput sgr0
+		echo ' '
+		options=("YES" "NO")
+		select diherecalc in "${options[@]}"; do
+			case $diherecalc in
+				${options[0]} )
+					sed -i '/Setup DIHE recalculation/{n;s/.*/set diherecalc 1/}' ../src/mdenm*.inp
+					echo ' '
+					tput bold
+					tput rev
+					echo $pgmnam 'How often to recalculate dihedral perturbations (ps)?'
+					tput sgr0
+					read -p '#? ' dihefreq
+					dihefreq=$(echo $dihefreq | tr ',' '.'); chartst=$(echo $dihefreq | sed 's/[^0-9]*//g')
+					if ! [ -z "$chartst" ] 2>/dev/null; then freq=$(echo $dihefreq*10 | bc); freq=$(echo ${freq%.*}); fi
+					while [ -z "$chartst" ] 2>/dev/null || [ $freq -le 0 ] 2>/dev/null || [ $freq -gt $collec ] 2>/dev/null; do
+						tput setaf 1
+						echo $pgmwrn 'Invalid value. Please insert a non-zero value lesser or equal than '$correc'ps.'
+						tput sgr0
+						read -p '#? ' dihefreq
+						dihefreq=$(echo $dihefreq | tr ',' '.'); chartst=$(echo $dihefreq | sed 's/[^0-9]*//g')
+						if ! [ -z "$chartst" ] 2>/dev/null; then freq=$(echo $dihefreq*10 | bc); freq=$(echo ${freq%.*}); fi
+					done
+					sed -i '/Frequency of DIHE recalculation/{n;s/.*/set dihefreq '$freq'/}' ../src/mdenm*.inp
+					break;;
+
+				${options[1]} ) sed -i '/Setup DIHE recalculation/{n;s/.*/set diherecalc 0/}' ../src/mdenm*.inp; break;;
+				* ) tput setaf 1; echo $pgmwrn 'Invalid option.'; tput sgr0;;
+			esac
+		done
+	fi
+	# Setup the secondary PFF or CUSTOM vectors correction in PFF+PFF or PFF+CUSTOM simulations, respectively
+	if [ $opt -eq 5 ] || [ $opt -eq 7 ]; then
+		echo ' '
+		tput setaf 2
+		tput bold
+		tput rev
+		if [ $opt -eq 5 ]; then echo $pgmnam 'Correct secondary PFF Modes directions?'; fi
+		if [ $opt -eq 7 ]; then echo $pgmnam 'Correct CUSTOM vectors directions?'; fi
+		tput sgr0
+		echo ' '
+		options=("YES" "NO")
+		select loccor in "${options[@]}"; do
+			case $loccor in
+				${options[0]} )
+				sed -i '/Setup local NM correction/{n;s/.*/set loccor 1/}' ../src/mdenm*.inp
+				echo ' '
+				tput bold
+				tput rev
+				if [ $opt -eq 5 ]; then echo $pgmnam 'How often to correct secondary PFF Modes directions? (ps)'; fi
+				if [ $opt -eq 7 ]; then echo $pgmnam 'How often to correct CUSTOM vectors directions (ps)?'; fi
+				tput sgr0
+				read -p '#? ' local
+				local=$(echo $local | tr ',' '.'); chartst=$(echo $local | sed 's/[^0-9]*//g')
+				if ! [ -z "$chartst" ] 2>/dev/null; then locl=$(echo $local*10 | bc); locl=$(echo ${locl%.*}); fi
+				while [ -z "$chartst" ] 2>/dev/null || [ $locl -le 0 ] 2>/dev/null || [ $locl -gt $collec ] 2>/dev/null; do
+					tput setaf 1
+					echo $pgmwrn 'Invalid value. Please insert a non-zero value lesser or equal than '$correc'ps.'
+					tput sgr0
+					read -p '#? ' local
+					local=$(echo $local | tr ',' '.'); chartst=$(echo $local | sed 's/[^0-9]*//g')
+					if ! [ -z "$chartst" ] 2>/dev/null; then locl=$(echo $local*10 | bc); locl=$(echo ${locl%.*}); fi
+				done
+				sed -i '/Frequency of local NM correction/{n;s/.*/set localfreq '$locl'/}' ../src/mdenm*.inp
+				echo ' '
+				echo ' '
+				break;;
+
+				${options[1]} ) sed -i '/Setup local NM correction/{n;s/.*/set loccor 0/}' ../src/mdenm*.inp; break;;
+
+				* ) tput setaf 1; echo $pgmwrn 'Invalid option.'; tput sgr0;;
+			esac
+		done
+	fi
+	echo ' '
+fi
+
+# Requires an output base name
+echo ' '
+w=null123
+tput bold
+tput rev
+echo $pgmnam 'Enter an output identifier (default is '\"output\"'):'
+while [ "$w" == "null123" ] 2>/dev/null; do
+	tput sgr0
+	read -p '#? ' output
+	out=$(echo $output | tr -dc '[:alnum:]\n\r')
+	if [ "$out" != "$output" ]; then
+		tput setaf 1
+		echo $pgmwrn 'Invalid value. Special characters are not allowed. Try again.'
+		tput sgr0
+	elif [ -z "$output" ] 2>/dev/null; then
+		w=full; output=output; sed -i '/Get output file name pattern/{n;s/.*/set output '$output'/}' ../src/mdenm*.inp
+	else
+		w=full; output=$(echo $output | tr '[A-Z]' '[a-z]'); sed -i '/Get output file name pattern/{n;s/.*/set output '$output'/}' ../src/mdenm*.inp
+	fi
+done
+echo ' '
+
+# ----------------------------------- #
+# REQUIRES THE NORMAL MODES TO EXCITE #
+# ----------------------------------- #
+
+# DIHE and CUSTOM are bypassed, since all dihedrals within the selection will be taken into account
+# in the former and all provided .xyz and/or .crd files will be accounted for the latter
+
+# ENM only simulations
+if [ $opt -eq 1 ]; then
+	echo ' '
+	tput bold
+	tput rev
+	echo $pgmnam 'Enter the ENM normal modes to excite (type '\"end\"' to finish):'
+	while [[ "$modes" != "end" ]] 2>/dev/null; do
+		tput sgr0
+		read -p '#? ' modes
+		cnt=$(cat input-enm.txt 2>/dev/null | wc -l)
+		modes=$(echo $modes | tr '[A-Z]' '[a-z]')
+		if [ $cnt -eq 0 ] 2>/dev/null && [[ "$modes" == "end" ]] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Please insert at least one mode.'
+			tput sgr0
+			modes=0
+		elif ! [ $modes -gt 6 ] 2>/dev/null && [[ "$modes" != "end" ]] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Invalid value. Only numbers equal or greater than 7 are allowed. Try again.'
+			tput sgr0
+		elif [ "$modes" -eq "" ] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Invalid value. Only numbers equal or greater than 7 are allowed. Try again.'
+			tput sgr0
+		else
+			if [[ "$modes" != "end" ]] 2>/dev/null; then echo enm-$modes >> input-enm.txt; fi
+		fi
+	done
+	vec=$(sed 's/enm-//g' input-enm.txt | sort -g | tail -1)
+	echo 999 >> input-enm.txt
+	sed -i '/Setup the number of modes to compute/{n;s/.*/vec='$vec'/}' ../modules/enm-run.mdu
+	echo ' '
+# PFF modes in: PFF, PFF+LOCAL, PFF+DIHE or PFF+CUSTOM simulations
+elif [ $opt -ge 2 ] && [ $opt -le 4 ] || [ $opt -eq 7 ]; then
+	echo ' '
+	tput bold
+	tput rev
+	echo $pgmnam 'Enter the PFF normal modes to excite (type '\"end\"' to finish):'
+	while [[ "$modes" != "end" ]] 2>/dev/null; do
+		tput sgr0
+		read -p '#? ' modes
+		cnt=$(cat input-pff.txt 2>/dev/null | wc -l)
+		modes=$(echo $modes | tr '[A-Z]' '[a-z]')
+		if [ $cnt -eq 0 ] 2>/dev/null && [[ "$modes" == "end" ]] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Please insert at least one mode.'
+			tput sgr0
+			modes=0
+		elif ! [ "$modes" -gt 6 ] 2>/dev/null && [[ "$modes" != "end" ]] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Invalid value. Only numbers equal or greater than 7 are allowed. Try again.'
+			tput sgr0
+		elif [ "$modes" -eq "" ] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Invalid value. Only numbers equal or greater than 7 are allowed. Try again.'
+			tput sgr0
+		else
+			if [[ "$modes" != "end" ]] 2>/dev/null; then echo pff-$modes >> input-pff.txt; fi
+		fi
+	done
+	echo 999 >> input-pff.txt
+	sed 's/pff-//g' input-pff* | sort | uniq > input.txt
+	echo ' '
+	# LOCAL modes in PFF+LOCAL or CUSTOM+LOCAL simulations
+	if [ $opt -eq 3 ] || [ $opt -eq 8 ]; then
+	tput bold
+	tput rev
+		echo $pgmnam 'How many low frequency LOCAL modes to excite?'
+		tput sgr0
+		read -p '#? ' modes
+		while ! [ "$modes" -gt 0 ] 2>/dev/null; do
+			tput setaf 1
+			echo $pgmwrn 'Invalid value. You must choose at least 1 mode. Try again.'
+			tput sgr0
+			read -p '#? ' modes
+		done
+		sed -i '/Setup the number of modes to compute/{n;s/.*/vec='$modes'/}' ../modules/local-run.mdu
+		echo ' '
+	fi
+# PFF+PFF simulations
+elif [ $opt -eq 5 ]; then
+	echo ' '
+	tput bold
+	tput rev
+	echo $pgmnam 'Enter the first set of PFF normal modes to excite (type '\"end\"' to finish):'
+	while [[ "$modes" != "end" ]] 2>/dev/null; do
+		tput sgr0
+		read -p '#? ' modes
+		cnt=$(cat input-pff.txt 2>/dev/null | wc -l)
+		modes=$(echo $modes | tr '[A-Z]' '[a-z]')
+		if [ $cnt -eq 0 ] 2>/dev/null && [[ "$modes" == "end" ]] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Please insert at least one mode.'
+			tput sgr0
+			modes=0
+		elif ! [ "$modes" -gt 6 ] 2>/dev/null && [[ "$modes" != "end" ]] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Invalid value. Only numbers equal or greater than 7 are allowed. Try again.'
+			tput sgr0
+		elif [ "$modes" -eq "" ] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Invalid value. Only numbers equal or greater than 7 are allowed. Try again.'
+			tput sgr0
+		else
+			if [ $modes != end ] 2>/dev/null; then echo pff-$modes >> input-pff.txt; fi
+		fi
+	done
+	echo 999 >> input-pff.txt
+	echo ' '
+	tput bold
+	tput rev
+	echo $pgmnam 'Enter the second set of PFF normal modes to excite (type '\"end\"' to finish):'
+	while [[ "$modes2" != "end" ]] 2>/dev/null; do
+		tput sgr0
+		read -p '#? ' modes2
+		cnt=$(cat input-pff2.txt 2>/dev/null | wc -l)
+		modes2=$(echo $modes2 | tr '[A-Z]' '[a-z]')
+		if [ $cnt -eq 0 ] 2>/dev/null && [[ "$modes" == "end" ]] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Please insert at least one mode.'
+			modes2=0
+		elif ! [ "$modes2" -gt 6 ] 2>/dev/null && [[ "$modes" != "end" ]] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Invalid value. Only numbers equal or greater than 7 are allowed. Try again.'
+			tput sgr0
+		elif [ "$modes2" -eq "" ] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Invalid value. Only numbers equal or greater than 7 are allowed. Try again.'
+			tput sgr0
+		else
+			if [[ "$modes2" != "end" ]] 2>/dev/null; then echo pff-$modes2 >> input-pff2.txt; fi
+		fi
+	done
+	echo 999 >> input-pff2.txt
+	sed 's/pff-//g' input-pff* | sort | uniq > input.txt
+	echo ' '
+fi
+
+# Request the RMSD threshold
+if [ $opt -ne 0 ]; then
+	echo ' '
+	tput bold
+	tput rev
+	echo $pgmnam 'Enter a RMSD value to apply the filtering (Å):'
+	tput sgr0
+	read -p '#? ' rmsthreshold
+	rmsthreshold=$(echo "$rmsthreshold" | tr '*' ' ' | tr ',' '.'); chartst=$(echo $rmsthreshold | sed 's/[^0-9]*//g')
+	while [ -z "$chartst" ] 2>/dev/null || [ $rmsthreshold -le 0 ] 2>/dev/null; do
+		tput setaf 1
+		echo $pgmwrn 'Invalid value. Positive value required. Try again.'
+		tput sgr0
+		read -p '#? ' rmsthreshold
+		rmsthreshold=$(echo "$rmsthreshold" | tr '*' ' ' | tr ',' '.'); chartst=$(echo $rmsthreshold | sed 's/[^0-9]*//g')
+	done
+	sed -i '/RMSD value for filtering/{n;s/.*/set rmsthreshold '$rmsthreshold'/}' ../src/mdenm*.inp
+	echo ' '
+fi
+
+# ------------------------------------------------------- #
+# SEARCHING FOR INPUT FILES AND CONFIGURE THE MAIN SCRIPT #
+# ------------------------------------------------------- #
+
+# PFF normal modes file
+if [ $opt -ge 2 ] && [ $opt -le 5 ] || [ $opt -eq 7 ]; then
+	echo ' '
+	tput bold
+	tput rev
+	echo $pgmnam 'Enter the PFF normal mode filename (.mod):'
+	tput sgr0
+	read -e -p '#? ' mod
+	while ! [ -f $mod ] 2>/dev/null; do
+		tput setaf 1
+		echo $pgmwrn 'File not found. Enter the PFF normal mode file (.mod):'
+		tput sgr0
+		read -e -p '#? ' mod
+	done
+	cp $mod . 2>/dev/null
+	modfile=`basename $mod`
+	sed -i '/PFF Normal Mode file/{n;s/.*/set modfile '$modfile'/}' ../modules/wrt-nm.mdu
+	echo ' '
+fi
+
+# CUSTOM vectors files
+if [ $opt -ge 6 ]; then
+	echo ' '
+	tput bold
+	tput rev
+	echo $pgmnam 'Enter the CUSTOM .xyz and/or .crd vector filename(s) (type '\"end\"' to finish):'
+	while [[ "$mod" != "end" ]] 2>/dev/null; do
+		tput sgr0
+		read -e -p '#? ' custom
+		mod=$(echo $custom | tr '[A-Z]' '[a-z]')
+		cnt=$(ls *.xyz *.crd 2>/dev/null | wc -l)
+		if [ $cnt -eq 0 ] 2>/dev/null && [ $mod -eq end ] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Please insert at least one vector.'
+			tput sgr0
+			mod=0
+		elif ! [ -f $custom ] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'File not found. Enter a valid filename(s) (.xyz or .crd):'
+			tput sgr0
+		elif [[ "$mod" != "end" ]] 2>/dev/null; then
+			cp $custom . 2>/dev/null
+			customfile=`basename $custom`
+			echo $customfile >> input-custom.txt
+		fi
+	done
+	echo 999 >> input-custom.txt
+	sed -i 's/.crd//g' input-custom.txt
+	sed -i 's/.xyz//g' input-custom.txt
+	echo ' '
+fi
+
+# MD restart file
+tput setaf 2
+tput bold
+tput rev
+echo $pgmnam 'MD restart input files are in which format?'
+tput sgr0
+echo ' '
+options=("CHARMM" "NAMD")
+select rsttype in "${options[@]}"; do
+	case $rsttype in
+		${options[0]} )
+			tput bold
+			tput rev
+			echo $pgmnam 'Enter the CHARMM molecular dynamics coordinate restart filename (.rst):'
+			tput sgr0
+			read -e -p '#? ' rst
+			while ! [ -f $rst ] 2>/dev/null; do
+				tput setaf 1
+				echo $pgmwrn 'File not found. Enter the molecular dynamics restart file (.rst):'
+				tput sgr0
+				read -e -p '#? ' rst
+			done
+			cp $rst . 2>/dev/null
+			rstfile=`basename $rst`
+			sed -i '/CHARMM Molecular Dynamics Restart file/{n;s/.*/set rstfile '$rstfile'/}' ../src/mdenm*.inp
+			sed -i '/Read the previuos equilibration coordinates/{n;s/.*/set rsttype 1/}' ../src/mdenm*.inp
+			sed -i '/Molecular Dynamics Restart file/{n;s/.*/rstfile='$rstfile'/}' ../modules/xyz2crd.mdu
+			sed -i '/Equilibration file type/{n;s/.*/rsttype=1/}' ../modules/xyz2crd.mdu
+			break;;
+
+		${options[1]} )
+			tput bold
+			tput rev
+			echo $pgmnam 'Enter the NAMD molecular dynamics coordinate restart filename (.coor):'
+			tput sgr0
+			read -e -p '#? ' rstcoor
+			while ! [ -f $rstcoor ] 2>/dev/null; do
+				tput setaf 1
+				echo $pgmwrn 'File not found. Enter the molecular dynamics restart file (.coor):'
+				tput sgr0
+				read -e -p '#? ' rstcoor
+			done
+			cp $rstcoor . 2>/dev/null
+			rstcoorfile=`basename $rstcoor`
+			sed -i '/NAMD Molecular Dynamics Coordinates file/{n;s/.*/set rstcoorfile '$rstcoorfile'/}' ../src/mdenm*.inp
+			sed -i '/Read the previuos equilibration coordinates/{n;s/.*/set rsttype 2/}' ../src/mdenm*.inp
+			sed -i '/Molecular Dynamics Restart file/{n;s/.*/rstfile='$rstcoorfile'/}' ../modules/xyz2crd.mdu
+			sed -i '/Equilibration file type/{n;s/.*/rsttype=2/}' ../modules/xyz2crd.mdu
+			echo ' '
+			tput bold
+			tput rev
+			echo $pgmnam 'Enter the NAMD molecular dynamics velocities restart filename (.vel):'
+			tput sgr0
+			read -e -p '#? ' rstvelo
+			while ! [ -f $rstvelo ] 2>/dev/null; do
+				tput setaf 1
+				echo $pgmwrn 'File not found. Enter the molecular dynamics restart file (.vel):'
+				tput sgr0
+				read -e -p '#? ' rstvelo
+			done
+			cp $rstvelo . 2>/dev/null
+			rstvelofile=`basename $rstvelo`
+			sed -i '/NAMD Molecular Dynamics Velocities file/{n;s/.*/set rstvelofile '$rstvelofile'/}' ../src/mdenm*.inp
+			break;;
+
+		* ) tput setaf 1; echo $pgmwrn 'Invalid option.'; tput sgr0;;
+	esac
+done
+echo ' '
+
+# PSF file
+echo ' '
+tput bold
+tput rev
+echo $pgmnam 'Enter the system`s structure filename (.psf):'
+tput sgr0
+read -e -p '#? ' psf
+while ! [ -f $psf ] 2>/dev/null; do
+	tput setaf 1
+	echo $pgmwrn 'File not found. Enter the system`s structure file (.psf):'
+	tput sgr0
+	read -e -p '#? ' psf
+done
+cp $psf . 2>/dev/null
+psffile=`basename $psf`
+sed -i '/System psf file/{n;s/.*/set psffile '$psffile'/}' ../src/mdenm*.inp
+sed -i '/System psf file/{n;s/.*/psffile='$psffile'/}' ../src/enm-comp
+sed -i '/System psf file/{n;s/.*/psffile='$psffile'/}' ../src/dihe-comp
+sed -i '/System psf file/{n;s/.*/set psffile '$psffile'/}' ../modules/wrt-nm.mdu
+sed -i '/System psf file/{n;s/.*/set psffile '$psffile'/}' ../modules/md.mdu
+sed -i '/System psf file/{n;s/.*/set psffile '$psffile'/}' ../modules/pdb2dcd.mdu
+sed -i '/System psf file/{n;s/.*/psffile='$psffile'/}' ../modules/local-run.mdu
+sed -i '/System psf file/{n;s/.*/psffile='$psffile'/}' ../modules/xyz2crd.mdu
+echo ' '
+
+# PBC parameters
+echo ' '
+tput bold
+tput rev
+echo $pgmnam 'Enter the system`s box and pbc filename (.str):'
+tput sgr0
+read -e -p '#? ' pbc
+while ! [ -f $pbc ] 2>/dev/null; do
+	tput setaf 1
+	echo $pgmwrn 'File not found. Enter the system`s box and pbc file (.str):'
+	tput sgr0
+	read -e -p '#? ' pbc
+done
+cp $pbc . 2>/dev/null
+pbcfile=`basename $pbc`
+sed -i '/System box and pbc file/{n;s/.*/set pbcfile '$pbcfile'/}' ../src/mdenm*.inp
+sed -i '/System box and pbc file/{n;s/.*/set pbcfile '$pbcfile'/}' ../modules/md.mdu
+echo ' '
+
+# Symmetry operations
+echo ' '
+tput bold
+tput rev
+echo $pgmnam 'Enter the crystal image filename (.str):'
+tput sgr0
+read -e -p '#? ' wat
+while ! [ -f $wat ] 2>/dev/null; do
+	tput setaf 1
+	echo $pgmwrn 'File not found. Enter the crystal image file (.str):'
+	tput sgr0
+	read -e -p '#? ' wat
+done
+cp $wat . 2>/dev/null
+watfile=`basename $wat`
+sed -i '/Crystal image/{n;s/.*/set watfile '$watfile'/}' ../src/mdenm*.inp
+sed -i '/Crystal image/{n;s/.*/set watfile '$watfile'/}' ../modules/md.mdu
+echo ' '
+
+# Force field topology and parameters
+echo ' '
+tput bold
+tput rev
+echo $pgmnam 'Enter topology and parameters stream filename (.str):'
+tput sgr0
+read -e -p '#? ' top
+while ! [ -f $top ] 2>/dev/null; do
+	tput setaf 1
+	echo $pgmwrn 'File not found. Enter topology and parameters stream file (.str):'
+	tput sgr0
+	read -e -p '#? ' top
+done
+cp $top . 2>/dev/null
+topfile=`basename $top`
+sed -i '/Topology and Parameters file/{n;s/.*/set topfile '$topfile'/}' ../src/mdenm*.inp
+sed -i '/Topology and Parameters file/{n;s/.*/topfile='$topfile'/}' ../src/enm-comp
+sed -i '/Topology and Parameters file/{n;s/.*/topfile='$topfile'/}' ../src/dihe-comp
+sed -i '/Topology and Parameters file/{n;s/.*/set topfile '$topfile'/}' ../modules/wrt-nm.mdu
+sed -i '/Topology and Parameters file/{n;s/.*/set topfile '$topfile'/}' ../modules/md.mdu
+sed -i '/Topology and Parameters file/{n;s/.*/set topfile '$topfile'/}' ../modules/pdb2dcd.mdu
+sed -i '/Topology and Parameters file/{n;s/.*/topfile='$topfile'/}' ../modules/local-run.mdu
+sed -i '/Topology and Parameters file/{n;s/.*/topfile='$topfile'/}' ../modules/xyz2crd.mdu
+sed -i 's/\.\.\/inputs\///g' $topfile 2>/dev/null
+sed -i "s/name /name \.\.\/inputs\//g" $topfile
+sed -i "s/stream /stream \.\.\/inputs\//g" $topfile
+echo ' '
+
+# Force field topology and parameters
+echo ' '
+tput bold
+tput rev
+echo $pgmnam 'Enter topology and parameters folder:'
+tput sgr0
+read -e -p '#? ' top
+test=$(ls -d $top 2>/dev/null | wc -l); test1=$(grep -F 'RESI ALA         ' $top/* 2>/dev/null | grep -Fv './configure' | wc -l)
+while [ -z "$top" ] 2>/dev/null || [[ "$test" -ne 1 ]] 2>/dev/null || [[ "$test1" -ne 1 ]] 2>/dev/null; do
+	tput setaf 1
+	echo $pgmwrn 'Folder not found. Enter topology and parameters folder:'
+	tput sgr0
+	read -e -p '#? ' top
+	test=$(ls -d $top 2>/dev/null | wc -l); test1=$(grep -F 'RESI ALA         ' $top/* 2>/dev/null | grep -Fv './configure' | wc -l)
+done
+cp -r $top . 2>/dev/null
+echo ' '
+
+# ---------------------- #
+# CHARMM ATOM SELECTIONS #
+# ---------------------- #
+
+# Function to check user`s selection input
+checksele () {
+		cat $slctname | tr ' ' '\n' | grep -v '^$' | tr '[a-z]' '[A-Z]' |
+		sed '/SELE/d;/END/d;/.OR./d;/.AND./d;/.NOT./d;/ARO/d;/.SUBSET./d;/.BONDED./d;/BYR/d;/BYGR/d;
+			 /SEGI/d;/ISEG/d;/RESI/d;/IRES/d;/RESN/d;/IGRO/d;/TYPE/d;/CHEM/d;/ATOM/d;/PROP/d;/POIN/d;
+			 /BYNU/d;/INIT/d;/LONE/d;/HYDR/d;/USER/d;/PREV/d;/RECA/d;/ALL/d;/NONE/d;' |
+		tr -d '()' | tr -d '[]' | tr -d '{}' | tr -d '*' | tr -d '%' | tr -d '+' | tr -d '#' | tr -d ':' | tr -d '-' | tr -d '.' > check.tmp
+
+		while read line; do
+			test=$(grep -i " $line " $psffile | wc -l)
+      		if [ $test -eq 0 ] 2>/dev/null; then break
+        	else
+        		continue
+       		fi
+		done < check.tmp
+}
+
+# REQUIRES THE ATOM SELECTIONS
+# DIHE simulations
+if [ $opt -eq 0 ]; then
+	sed -i 's/PRTN/SLCT/g' ../modules/*
+	sed -i 's/PRTN/SLCT/g' ../lib/*
+	echo ' '
+	tput bold
+	tput rev
+	echo $pgmnam 'Define a CHARMM atom selection to consider in dihedral angles perturbation (default is '\"sele type CA end\"'):'
+	tput sgr0
+	echo $pgmnam 'You may need multiple lines. Type Enter then Cntrl+D when finished.'
+	readarray -t diheslct
+	declare -p diheslct | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > diheslct.tmp
+	slctname=diheslct.tmp; checksele
+	diheslct=$(cat diheslct.tmp)
+	sele=null
+	while [ "$sele" == "null" ] 2>/dev/null; do
+		if [ -z "$diheslct" ] 2>/dev/null; then
+			sed -i '/Define the segment to perturb the dihedral angles/a define SLCT sele type CA end' ../src/mdenm*.inp
+			sed -i '/define SLCT sele/a set Nslct ?nsel' ../src/mdenm*.inp
+			sed -i '/Protein selection/{n;s/.*/prtn="define SLCT sele type CA end"/}' ../src/dihe-comp
+			sele=full
+		elif [ $test -eq 0 ] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Selection does not match with psf file. Try again.'
+			tput sgr0
+			readarray -t diheslct
+			declare -p diheslct | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > diheslct.tmp
+			slctname=diheslct.tmp; checksele
+		else
+			echo -e define SLCT "$diheslct""\n"set Nslct ?nsel > diheslct.tmp
+			sed -i '/Define the segment to perturb the dihedral angles/r diheslct.tmp' ../src/mdenm*.inp
+			sed -i '/Protein selection/{n;s/.*/prtn=$(cat \.\.\/\.\.\/inputs\/diheslct.tmp)/}' ../src/dihe-comp
+			sele=full
+		fi
+	done
+	echo ' '
+# ENM simulations
+elif [ $opt -eq 1 ]; then
+	echo ' '
+	tput bold
+	tput rev
+	echo $pgmnam 'Define a CHARMM atom selection to consider in ENM calculation (default is '\"sele type CA end\"'):'
+	tput sgr0
+	echo $pgmnam 'You may need multiple lines. Type Enter then Cntrl+D when finished.'
+	readarray -t enmslct
+	declare -p enmslct | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > enmslct.tmp
+	slctname=enmslct.tmp; checksele
+	enmslct=$(cat enmslct.tmp)
+	sele=null
+	while [ "$sele" == "null" ] 2>/dev/null; do
+		if [ -z "$enmslct" ] 2>/dev/null; then
+			sed -i '/Define the selection to consider in ENM/a define PRTN sele type CA end' ../src/mdenm*.inp
+			sed -i '/define PRTN sele/a set Nprtn ?nsel' ../src/mdenm*.inp
+			sed -i '/Protein selection/{n;s/.*/prtn="define PRTN sele type CA end"/}' ../src/enm-comp
+			sele=full
+		elif [ $test -eq 0 ] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Selection does not match with psf file. Try again.'
+			tput sgr0
+			readarray -t enmslct
+			declare -p enmslct | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > enmslct.tmp
+			slctname=enmslct.tmp; checksele
+		else
+			echo -e define PRTN "$enmslct""\n"set Nprtn ?nsel > enmslct.tmp
+			sed -i '/Define the selection to consider in ENM/r enmslct.tmp' ../src/mdenm*.inp
+			sed -i '/Protein selection/{n;s/.*/prtn=$(cat \.\.\/\.\.\/inputs\/enmslct.tmp)/}' ../src/enm-comp
+			sele=full
+		fi
+	done
+	echo ' '
+	tput bold
+	tput rev
+	echo $pgmnam 'Define a CHARMM selection to apply the RMSD filtering (default is '\"sele type CA end\"'):'
+	tput sgr0
+	echo $pgmnam 'You may need multiple lines. Type Enter then Cntrl+D when finished.'
+	readarray -t rmsd
+	declare -p rmsd | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > rmsd.tmp
+	slctname=rmsd.tmp; checksele
+	rmsdslct=$(cat rmsd.tmp)
+	sele=null
+	while [ "$sele" == "null" ] 2>/dev/null; do
+		if [ -z "$rmsdslct" ] 2>/dev/null; then
+			sed -i '/Define the region of interest to apply the filtering/a define FILT sele type CA end' ../src/mdenm*.inp
+			sed -i '/define FILT sele/a set Nfilt ?nsel' ../src/mdenm*.inp
+			sele=full
+		elif [ $test -eq 0 ] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Selection does not match with psf file. Try again.'
+			tput sgr0
+			readarray -t rmsd
+			declare -p rmsd | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > rmsd.tmp
+			slctname=rmsd.tmp; checksele
+		else
+			echo -e define FILT "$rmsdslct""\n"set Nfilt ?nsel > rmsd.tmp
+			sed -i '/Define the region of interest to apply the filtering/r rmsd.tmp' ../src/mdenm*.inp
+			sele=full
+		fi
+	done
+	echo ' '
+# PFF or CUSTOM simulations
+elif [ $opt -eq 2 ] || [ $opt -eq 6 ]; then
+	echo ' '
+	tput bold
+	tput rev
+	if [ $opt -eq 2 ]; then echo $pgmnam 'Define the CHARMM selection that covers all atoms considered in NMA calculation (default is '\"sele segid PROA end\"'):'; fi
+	if [ $opt -eq 6 ]; then echo $pgmnam 'Define the CHARMM selection that covers all atoms considered in the CUSTOM vector (default is '\"sele segid PROA end\"'):'; fi
+	tput sgr0
+	echo $pgmnam 'You may need multiple lines. Type Enter then Cntrl+D when finished.'
+	readarray -t pffslct
+	declare -p pffslct | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > pffslct.tmp
+	slctname=pffslct.tmp; checksele
+	pffslct=$(cat pffslct.tmp)
+	sele=null
+	while [ "$sele" == "null" ] 2>/dev/null; do
+		if [ -z "$pffslct" ] 2>/dev/null; then
+			sed -i '/Define the group formed by the atoms considered in PFF NMA calculation/a define PRTN sele segid PROA end' ../src/mdenm*.inp
+			sed -i '/define PRTN sele/a set Nprtn ?nsel' ../src/mdenm*.inp
+			sed -i '/Define the group formed by the atoms considered in PFF NMA calculation/a define PRTN sele segid PROA end' ../modules/wrt-nm.mdu
+			sele=full
+		elif [ $test -eq 0 ] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Selection does not match with psf file. Try again.'
+			tput sgr0
+			readarray -t pffslct
+			declare -p pffslct | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > pffslct.tmp
+			slctname=pffslct.tmp; checksele
+		else
+			echo -e define PRTN "$pffslct""\n"set Nprtn ?nsel > pffslct.tmp
+			sed -i '/Define the group formed by the atoms considered in PFF NMA calculation/r pffslct.tmp' ../src/mdenm*.inp
+			sed -i '/Define the group formed by the atoms considered in PFF NMA calculation/r pffslct.tmp' ../modules/wrt-nm.mdu
+			sele=full
+		fi
+	done
+	echo ' '
+	tput bold
+	tput rev
+	echo $pgmnam 'Define a CHARMM selection to apply the RMSD filtering (default is '\"sele type CA end\"'):'
+	tput sgr0
+	echo $pgmnam 'You may need multiple lines. Type Enter then Cntrl+D when finished.'
+	readarray -t rmsd
+	declare -p rmsd | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > rmsd.tmp
+	slctname=rmsd.tmp; checksele
+	rmsdslct=$(cat rmsd.tmp)
+	sele=null
+	while [ "$sele" == "null" ] 2>/dev/null; do
+		if [ -z "$rmsdslct" ] 2>/dev/null; then
+			sed -i '/Define the region of interest to apply the filtering/a define FILT sele type CA end' ../src/mdenm*.inp
+			sed -i '/define FILT sele/a set Nfilt ?nsel' ../src/mdenm*.inp
+			sele=full
+		elif [ $test -eq 0 ] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Selection does not match with psf file. Try again.'
+			tput sgr0
+			readarray -t rmsd
+			declare -p rmsd | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > rmsd.tmp
+			slctname=rmsd.tmp; checksele
+		else
+			echo -e define FILT "$rmsdslct""\n"set Nfilt ?nsel > rmsd.tmp
+			sed -i '/Define the region of interest to apply the filtering/r rmsd.tmp' ../src/mdenm*.inp
+			sele=full
+		fi
+	done
+	echo ' '
+# PFF+LOCAL or CUSTOM+LOCAL simulations
+elif [ $opt -eq 3 ] || [ $opt -eq 8 ]; then
+	echo ' '
+	tput bold
+	tput rev
+	if [ $opt -eq 3 ]; then echo $pgmnam 'Define the CHARMM selection considered in PFF NMA calculation (default is '\"sele segid PROA end\"'):'; fi
+	if [ $opt -eq 8 ]; then echo $pgmnam 'Define the CHARMM selection that covers all atoms considered in the CUSTOM vector (default is '\"sele segid PROA end\"'):'; fi
+	tput sgr0
+	echo $pgmnam 'You may need multiple lines. Type Enter then Cntrl+D when finished.'
+	readarray -t pffslct
+	declare -p pffslct | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > pffslct.tmp
+	slctname=pffslct.tmp; checksele
+	pffslct=$(cat pffslct.tmp)
+	sele=null
+	while [ "$sele" == "null" ] 2>/dev/null; do
+		if [ -z "$pffslct" ] 2>/dev/null; then
+			sed -i '/Define the group formed by the atoms considered in PFF NMA calculation/a define PRTN sele segid PROA end' ../src/mdenm*.inp
+			sed -i '/define PRTN sele/a set Nprtn ?nsel' ../src/mdenm*.inp
+			sed -i '/Define the group formed by the atoms considered in PFF NMA calculation/a define PRTN sele segid PROA end' ../modules/wrt-nm.mdu
+			sed -i '/Protein selection/{n;s/.*/prtn="define PRTN sele segid PROA end"/}' ../modules/local-run.mdu
+			sele=full
+		elif [ $test -eq 0 ] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Selection does not match with psf file. Try again.'
+			tput sgr0
+			readarray -t pffslct
+			declare -p pffslct | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > pffslct.tmp
+			slctname=pffslct.tmp; checksele
+		else
+			echo -e define PRTN "$slctname""\n"set Nprtn ?nsel > pffslct.tmp
+			sed -i '/Define the group formed by the atoms considered in PFF NMA calculation/r pffslct.tmp' ../src/mdenm*.inp
+			sed -i '/Define the group formed by the atoms considered in PFF NMA calculation/r pffslct.tmp' ../modules/wrt-nm.mdu
+			sed -i '/Protein selection/{n;s/.*/prtn=$(cat \.\.\/\.\.\/inputs\/pffslct.tmp)/}' ../modules/local-run.mdu
+			sele=full
+		fi
+	done
+	echo ' '
+	tput bold
+	tput rev
+	echo $pgmnam 'Define a CHARMM selection compute LOCAL modes (default is '\"sele segid PROA end\"'):'
+	tput sgr0
+	echo $pgmnam 'You may need multiple lines. Type Enter then Cntrl+D when finished.'
+	readarray -t slct
+	declare -p slct | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > slct.tmp
+	slctname=slct.tmp; checksele
+	slct=$(cat slct.tmp)
+	sele=null
+	while [ "$sele" == "null" ] 2>/dev/null; do
+		if [ -z "$slct" ] 2>/dev/null; then
+			sed -i '/or LOCAL NM calculations/a define SLCT sele segid PROA end' ../src/mdenm*.inp
+			sed -i '/define SLCT sele/a set Nslct ?nsel' ../src/mdenm*.inp
+			sed -i '/Segment selection/{n;s/.*/slct="define SLCT sele segid PROA end"/}' ../modules/local-run.mdu
+			sele=full
+		elif [ $test -eq 0 ] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Selection does not match with psf file. Try again.'
+			tput sgr0
+			readarray -t slct
+			declare -p slct | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > slct.tmp
+			slctname=slct.tmp; checksele
+		else
+			echo -e define SLCT "$slct""\n"set Nslct ?nsel > slct.tmp
+			sed -i '/or LOCAL NM calculations/r slct.tmp' ../src/mdenm*.inp
+			sed -i '/Segment selection/{n;s/.*/slct=$(cat \.\.\/\.\.\/inputs\/slct.tmp)/}' ../modules/local-run.mdu
+			sele=full
+		fi
+	done
+	echo ' '
+	tput bold
+	tput rev
+	echo $pgmnam 'Define a CHARMM selection to apply the RMSD filtering (default is '\"sele type CA end\"'):'
+	tput sgr0
+	echo $pgmnam 'You may need multiple lines. Type Enter then Cntrl+D when finished.'
+	readarray -t rmsd
+	declare -p rmsd | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > rmsd.tmp
+	slctname=rmsd.tmp; checksele
+	rmsdslct=$(cat rmsd.tmp)
+	sele=null
+	while [ "$sele" == "null" ] 2>/dev/null; do
+		if [ -z "$rmsdslct" ] 2>/dev/null; then
+			sed -i '/Define the region of interest to apply the filtering/a define FILT sele type CA end' ../src/mdenm*.inp
+			sed -i '/define FILT sele/a set Nfilt ?nsel' ../src/mdenm*.inp
+			sele=full
+		elif [ $test -eq 0 ] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Selection does not match with psf file. Try again.'
+			tput sgr0
+			readarray -t rmsd
+			declare -p rmsd | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > rmsd.tmp
+			slctname=rmsd.tmp; checksele
+		else
+			echo -e define FILT "$rmsdslct""\n"set Nfilt ?nsel > rmsd.tmp
+			sed -i '/Define the region of interest to apply the filtering/r rmsd.tmp' ../src/mdenm*.inp
+			sele=full
+		fi
+	done
+	echo ' '
+# PFF+DIHE or CUSTOM+DIHE simulations
+elif [ $opt -eq 4 ] || [ $opt -eq 9 ]; then
+	echo ' '
+	tput bold
+	tput rev
+	if [ $opt -eq 4 ]; then echo $pgmnam 'Define the CHARMM selection considered in PFF NMA calculation (default is '\"sele segid PROA end\"'):'; fi
+	if [ $opt -eq 9 ]; then echo $pgmnam 'Define the CHARMM selection that covers all atoms considered in the CUSTOM vector (default is '\"sele segid PROA end\"'):'; fi
+	tput sgr0
+	echo $pgmnam 'You may need multiple lines. Type Enter then Cntrl+D when finished.'
+	readarray -t pffslct
+	declare -p pffslct | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > pffslct.tmp
+	slctname=pffslct.tmp; checksele
+	pffslct=$(cat pffslct.tmp)
+	sele=null
+	while [ "$sele" == "null" ] 2>/dev/null; do
+		if [ -z "$pffslct" ] 2>/dev/null; then
+			sed -i '/Define the group formed by the atoms considered in PFF NMA calculation/a define PRTN sele segid PROA end' ../src/mdenm*.inp
+			sed -i '/define PRTN sele/a set Nprtn ?nsel' ../src/mdenm*.inp
+			sed -i '/Define the group formed by the atoms considered in PFF NMA calculation/a define PRTN sele segid PROA end' ../modules/wrt-nm.mdu
+			sele=full
+		elif [ $test -eq 0 ] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Selection does not match with psf file. Try again.'
+			tput sgr0
+			readarray -t pffslct
+			declare -p pffslct | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > pffslct.tmp
+			slctname=pffslct.tmp; checksele
+		else
+			echo -e define PRTN "$pffslct""\n"set Nprtn ?nsel > pffslct.tmp
+			sed -i '/Define the group formed by the atoms considered in PFF NMA calculation/r pffslct.tmp' ../src/mdenm*.inp
+			sed -i '/Define the group formed by the atoms considered in PFF NMA calculation/r pffslct.tmp' ../modules/wrt-nm.mdu
+			sele=full
+		fi
+	done
+	echo ' '
+	tput bold
+	tput rev
+	echo $pgmnam 'Define a CHARMM selection to perturb dihedral angles (default is '\"sele segid PROA end\"'):'
+	tput sgr0
+	echo $pgmnam 'You may need multiple lines. Type Enter then Cntrl+D when finished.'
+	readarray -t diheslct
+	declare -p diheslct | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > diheslct.tmp
+	slctname=diheslct.tmp; checksele
+	diheslct=$(cat diheslct.tmp)
+	sele=null
+	while [ "$sele" == "null" ] 2>/dev/null; do
+		if [ -z "$diheslct" ] 2>/dev/null; then
+			sed -i '/Define the segment to perturb the dihedral angles/a define SLCT sele segid PROA end' ../src/mdenm*.inp
+			sed -i '/define SLCT sele/a set Nslct ?nsel' ../src/mdenm*.inp
+			sed -i '/Protein selection/{n;s/.*/prtn="define SLCT sele segid PROA end"/}' ../src/dihe-comp
+			sele=full
+		elif [ $test -eq 0 ] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Selection does not match with psf file. Try again.'
+			tput sgr0
+			readarray -t diheslct
+			declare -p rmsd | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > diheslct.tmp
+			slctname=diheslct.tmp; checksele
+		else
+			echo -e define SLCT "$diheslct""\n"set Nslct ?nsel > diheslct.tmp
+			sed -i '/Define the segment to perturb the dihedral angles/r diheslct.tmp' ../src/mdenm*.inp
+			sed -i '/Protein selection/{n;s/.*/prtn=$(cat \.\.\/\.\.\/inputs\/diheslct.tmp)/}' ../src/dihe-comp
+			sele=full
+		fi
+	done
+	echo ' '
+	tput bold
+	tput rev
+	echo $pgmnam 'Define a CHARMM selection to apply the RMSD filtering (default is '\"sele type CA end\"'):'
+	tput sgr0
+	echo $pgmnam 'You may need multiple lines. Type Enter then Cntrl+D when finished.'
+	readarray -t rmsd
+	declare -p rmsd | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > rmsd.tmp
+	slctname=rmsd.tmp; checksele
+	rmsdslct=$(cat rmsd.tmp)
+	sele=null
+	while [ "$sele" == "null" ] 2>/dev/null; do
+		if [ -z "$rmsdslct" ] 2>/dev/null; then
+			sed -i '/Define the region of interest to apply the filtering/a define FILT sele type CA end' ../src/mdenm*.inp
+			sed -i '/define FILT sele/a set Nfilt ?nsel' ../src/mdenm*.inp
+			sele=full
+		elif [ $test -eq 0 ] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Selection does not match with psf file. Try again.'
+			tput sgr0
+			readarray -t rmsd
+			declare -p rmsd | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > rmsd.tmp
+			slctname=rmsd.tmp; checksele
+		else
+			echo -e define FILT "$rmsdslct""\n"set Nfilt ?nsel > rmsd.tmp
+			sed -i '/Define the region of interest to apply the filtering/r rmsd.tmp' ../src/mdenm*.inp
+			sele=full
+		fi
+	done
+	echo ' '
+# PFF+PFF or PFF+CUSTOM simulations
+elif [ $opt -eq 5 ] || [ $opt -eq 7 ]; then
+	echo ' '
+	tput bold
+	tput rev
+	echo $pgmnam 'Define the CHARMM selection that covers all atoms considered in NMA calculation (default is '\"sele segid PROA end\"'):'
+	tput sgr0
+	echo $pgmnam 'You may need multiple lines. Type Enter then Cntrl+D when finished.'
+	readarray -t pffslct
+	declare -p pffslct | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > pffslct.tmp
+	slctname=pffslct.tmp; checksele
+	pffslct=$(cat pffslct.tmp)
+	sele=null
+	while [ "$sele" == "null" ] 2>/dev/null; do
+		if [ -z "$pffslct" ] 2>/dev/null; then
+			sed -i '/Define the group formed by the atoms considered in PFF NMA calculation/a define PRTN sele segid PROA end' ../src/mdenm*.inp
+			sed -i '/define PRTN sele/a set Nprtn ?nsel' ../src/mdenm*.inp
+			sed -i '/Define the group formed by the atoms considered in PFF NMA calculation/a define PRTN sele segid PROA end' ../modules/wrt-nm.mdu
+			sele=full
+		elif [ $test -eq 0 ] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Selection does not match with psf file. Try again.'
+			tput sgr0
+			readarray -t pffslct
+			declare -p pffslct | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > pffslct.tmp
+			slctname=pffslct.tmp; checksele
+		else
+			echo -e define PRTN "$pffslct""\n"set Nprtn ?nsel > pffslct.tmp
+			sed -i '/Define the group formed by the atoms considered in PFF NMA calculation/r pffslct.tmp' ../src/mdenm*.inp
+			sed -i '/Define the group formed by the atoms considered in PFF NMA calculation/r pffslct.tmp' ../modules/wrt-nm.mdu
+			sele=full
+		fi
+	done
+	echo ' '
+	tput bold
+	tput rev
+	if [ $opt -eq 5 ]; then echo $pgmnam 'Define a CHARMM selection to consider as the local set of PFF modes (default is '\"sele segid PROA end\"'):'; fi
+	if [ $opt -eq 7 ]; then echo $pgmnam 'Define a CHARMM selection to consider the CUSTOM vectors (default is '\"sele segid PROA end\"'):'; fi
+	tput sgr0
+	echo $pgmnam 'You may need multiple lines. Type Enter then Cntrl+D when finished.'
+	readarray -t slct
+	declare -p slct | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > slct.tmp
+	slctname=slct.tmp; checksele
+	slct=$(cat slct.tmp)
+	sele=null
+	while [ "$sele" == "null" ] 2>/dev/null; do
+		if [ -z "$slct" ] 2>/dev/null; then
+			sed -i '/or LOCAL NM calculations/a define SLCT sele segid PROA end' ../src/mdenm*.inp
+			sed -i '/define SLCT sele/a set Nslct ?nsel' ../src/mdenm*.inp
+			sele=full
+		elif [ $test -eq 0 ] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Selection does not match with psf file. Try again.'
+			tput sgr0
+			readarray -t slct
+			declare -p slct | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > slct.tmp
+			slctname=slct.tmp; checksele
+		else
+			echo -e define SLCT "$slct""\n"set Nslct ?nsel > slct.tmp
+			sed -i '/Define the region of interest to apply the filtering/r slct.tmp' ../src/mdenm*.inp
+			sele=full
+		fi
+	done
+	echo ' '
+	tput bold
+	tput rev
+	echo $pgmnam 'Define a CHARMM selection to apply the RMSD filtering (default is '\"sele type CA end\"'):'
+	tput sgr0
+	echo $pgmnam 'You may need multiple lines. Type Enter then Cntrl+D when finished.'
+	readarray -t rmsd
+	declare -p rmsd | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > rmsd.tmp
+	slctname=rmsd.tmp; checksele
+	rmsdslct=$(cat rmsd.tmp)
+	sele=null
+	while [ "$sele" == "null" ] 2>/dev/null; do
+		if [ -z "$rmsdslct" ] 2>/dev/null; then
+			sed -i '/Define the region of interest to apply the filtering/a define FILT sele type CA end' ../src/mdenm*.inp
+			sed -i '/define FILT sele/a set Nfilt ?nsel' ../src/mdenm*.inp
+			sele=full
+		elif [ $test -eq 0 ] 2>/dev/null; then
+			tput setaf 1
+			echo $pgmwrn 'Selection does not match with psf file. Try again.'
+			tput sgr0
+			readarray -t rmsd
+			declare -p rmsd | grep -Po "(?<=(\()).*(?=\))" | tr '=' '\n' | awk -F"[\"|\"]" '{print $2}' | grep -v '^$' > rmsd.tmp
+			slctname=rmsd.tmp; checksele
+		else
+			echo -e define FILT "$rmsdslct""\n"set Nfilt ?nsel > rmsd.tmp
+			sed -i '/Define the region of interest to apply the filtering/r rmsd.tmp' ../src/mdenm*.inp
+			sele=full
+		fi
+	done
+	echo ' '
+fi
+
+# Configure the executable file
+echo ' '
+tput bold
+tput rev
+echo $pgmnam 'Enter the number of replicas to run:'
+tput sgr0
+read -p '#? ' reptot
+while ! [ "$reptot" -gt 0 ] 2>/dev/null; do
+	tput setaf 1
+	echo $pgmwrn 'Invalid value. Integer number required. Try again.'
+	tput sgr0
+read -p '#? ' reptot
+done
+echo ' '
+
+# Create the executable
+echo ' '
+tput setaf 2
+tput bold
+tput rev
+echo $pgmnam 'Run MDeNM in a single core or in parallel?'
+tput sgr0
+echo ' '
+options=("SINGLE" "PARALLEL")
+select nodes in "${options[@]}"; do
+    case $nodes in
+	    ${options[0]} ) nodes=0; break;;
+	    ${options[1]} ) nodes=1; break;;
+	    * ) tput setaf 1; echo $pgmwrn 'Invalid option.'; tput sgr0;;
+    esac
+done
+proc=$(grep -c ^processor /proc/cpuinfo)
+echo ' '
+
+tput setaf 2
+tput bold
+tput rev
+echo $pgmnam 'Choose the environment to execute the jobs:'
+tput sgr0
+echo ' '
+options=("BASH" "PBS" "SLURM")
+select execenv in "${options[@]}"; do
+	case $execenv in
+		${options[0]} )
+			if [ $opt -ne 0 ]; then
+				echo '#!/bin/bash' > ../mdenm-run
+				echo ' ' >> ../mdenm-run
+				echo 'mkdir -p struct-list' >> ../mdenm-run
+				echo 'touch struct-list/struct-list.txt' >> ../mdenm-run
+				echo ' ' >> ../mdenm-run
+			fi
+			if [ $opt -ge 6 ]; then
+				echo 'sh modules/xyz2crd.mdu >/dev/null 2>&1' >> ../mdenm-run
+				echo ' ' >> ../mdenm-run
+			fi
+			if [ $opt -eq 5 ] || [ $opt -eq 7 ]; then
+				echo 'sed 's/input-pff.txt/input-pff2.txt/g' modules/pff-vector.mdu > modules/pff-vector2.mdu' >> ../mdenm-run
+				echo 'sed -i 's/PRTN/SLCT/g' modules/pff-vector2.mdu' >> ../mdenm-run
+				echo ' ' >> ../mdenm-run
+				echo 'sed 's/PRTN/SLCT/g' modules/nm-correc.mdu > modules/nm-correc2.mdu' >> ../mdenm-run
+				echo 'sed -i 's/average-/local-/g' modules/nm-correc2.mdu' >> ../mdenm-run
+				echo ' ' >> ../mdenm-run
+			fi
+			echo 'echo "#!/bin/bash" > run.sh' >> ../mdenm-run
+			echo 'echo " " >> run.sh' >> ../mdenm-run
+			echo 'echo "mkdir rep\$1" >> run.sh' >> ../mdenm-run
+			echo 'echo "cd rep\$1" >> run.sh' >> ../mdenm-run
+			echo 'echo " " >> run.sh' >> ../mdenm-run
+			if [ $opt -eq 0 ] || [ $opt -eq 4 ] || [ $opt -eq 9 ]; then
+				echo 'echo "sed "s/rep=/rep=\$1/g" ../modules/dihe-run.mdu > dihe-run.mdu" >> run.sh' >> ../mdenm-run
+			fi
+			if [ $opt -eq 1 ] || [ $opt -eq 3 ] || [ $opt -eq 8 ]; then
+				echo 'echo "sed "s/rep=/rep=\$1/g" ../modules/local-run.mdu > local-run.mdu" >> run.sh' >> ../mdenm-run
+			fi
+			echo 'echo " " >> run.sh' >> ../mdenm-run
+			if [ $nodes -eq 1 ]; then
+				echo 'echo "mpirun -np '$((proc - 1))' charmm -i ../modules/md.mdu -o md.out 1>rep\$1.log 2>rep\$1.log&" >> run.sh' >> ../mdenm-run
+				echo 'echo "charmm -i ../src/mdenm-parallel.inp rep=\$1 -o mdenm.out 1>rep\$1.log 2>rep\$1.log&" >> run.sh' >> ../mdenm-run
+			fi
+			echo 'echo "charmm -i ../src/mdenm-single.inp rep=\$1 -o mdenm.out 1>rep\$1.log 2>rep\$1.log&" >> run.sh' >> ../mdenm-run
+			echo 'echo " " >> run.sh' >> ../mdenm-run
+			echo 'echo "# RUN ANALYSIS" >> run.sh' >> ../mdenm-run
+			echo 'echo "gunzip initcoor.crd.gz {helix,sheet}.out.gz" >> run.sh' >> ../mdenm-run
+			echo 'echo " " >> run.sh' >> ../mdenm-run
+			echo 'echo "# Secondary structure ratio" >> run.sh' >> ../mdenm-run
+			echo 'echo " " >> run.sh' >> ../mdenm-run
+			echo 'echo "# Concatenate the pdb files into a unique trajectory file" >> run.sh' >> ../mdenm-run
+			echo 'echo "charmm -i ../modules/pdb2dcd.mdu -o pdb2dcd.out" >> run.sh' >> ../mdenm-run
+			echo 'echo " " >> run.sh' >> ../mdenm-run
+			echo 'echo "# Run some structural analysis (radius of gyration, sasa and rmsd)" >> run.sh' >> ../mdenm-run
+			echo 'echo "vmd -dispdev text -e ../src/rog_loop_dcd.tcl " >> run.sh' >> ../mdenm-run
+			echo 'echo "vmd -dispdev text -e ../src/sasa.tcl " >> run.sh' >> ../mdenm-run
+			echo 'echo "vmd -dispdev text -e ../src/rmsd.tcl" >> run.sh' >> ../mdenm-run
+			break;;
+
+		${options[1]} )
+			if [ $opt -ne 0 ]; then
+			    echo '#!/bin/bash' > ../mdenm-run
+				echo ' ' >> ../mdenm-run
+				echo 'mkdir -p struct-list' >> ../mdenm-run
+				echo 'touch struct-list/struct-list.txt' >> ../mdenm-run
+				echo ' ' >> ../mdenm-run
+			fi
+			if [ $opt -ge 6 ]; then
+				echo 'sh modules/xyz2crd.mdu >/dev/null 2>&1' >> ../mdenm-run
+				echo ' ' >> ../mdenm-run
+			fi
+			if [ $opt -eq 5 ]; then
+				echo 'sed 's/input-pff.txt/input-pff2.txt/g' modules/pff-vector.mdu > modules/pff-vector2.mdu' >> ../mdenm-run
+				echo 'sed -i 's/PRTN/SLCT/g' modules/pff-vector2.mdu' >> ../mdenm-run
+				echo ' ' >> ../mdenm-run
+				echo 'sed 's/PRTN/SLCT/g' modules/nm-correc.mdu > modules/nm-correc2.mdu' >> ../mdenm-run
+				echo 'sed -i 's/average-/local-/g' modules/nm-correc2.mdu' >> ../mdenm-run
+				echo ' ' >> ../mdenm-run
+			fi
+			echo 'echo "mkdir rep\$1" >> run.sh' >> ../mdenm-run
+            echo 'echo "echo "set startmd 0" > rep\$1/start-md.txt" >> run.sh' >> ../mdenm-run
+			echo 'echo " " >> run.sh' >> ../mdenm-run
+			if [ $nodes -eq 0 ]; then
+				echo 'echo "sed "s/outputname/'$output'/g" inputs/single-pbs.job > rep\$1/rep-\$1.job" >> run.sh' >> ../mdenm-run
+			else
+				echo 'echo "sed "s/outputname/'$output'/g" inputs/parallel-pbs.job > rep\$1/rep-\$1.job" >> run.sh' >> ../mdenm-run
+				echo 'echo "sed -i "s/PROC1/'$((proc - 1))'/g" rep\$1/rep-\$1.job" >> run.sh' >> ../mdenm-run
+				echo 'echo "sed -i "s/PROC2/'$proc'/g" rep\$1/rep-\$1.job" >> run.sh' >> ../mdenm-run
+			fi
+			echo 'echo "sed -i "s/xxx/\$1/g" rep\$1/rep-\$1.job" >> run.sh' >> ../mdenm-run
+			if [ $opt -eq 0 ] || [ $opt -eq 4 ] || [ $opt -eq 9 ]; then
+				echo 'echo "sed "s/rep=/rep=\$1/g" modules/dihe-run.mdu > rep\$1/dihe-run.mdu" >> run.sh' >> ../mdenm-run
+			fi
+			if [ $opt -eq 1 ] || [ $opt -eq 3 ] || [ $opt -eq 8 ]; then
+				echo 'echo "sed "s/rep=/rep=\$1/g" modules/local-run.mdu > rep\$1/local-run.mdu" >> run.sh' >> ../mdenm-run
+			fi
+			echo 'echo " " >> run.sh' >> ../mdenm-run
+			echo 'echo "qsub rep\$1/rep-\$1.job" >> run.sh' >> ../mdenm-run
+			echo 'echo "sleep 5s" >> run.sh' >> ../mdenm-run
+			break;;
+
+		${options[2]} )
+			if [ $opt -ne 0 ]; then
+			    echo '#!/bin/bash' > ../mdenm-run
+				echo ' ' >> ../mdenm-run
+				echo 'mkdir -p struct-list' >> ../mdenm-run
+				echo 'touch struct-list/struct-list.txt' >> ../mdenm-run
+				echo ' ' >> ../mdenm-run
+			fi
+			if [ $opt -ge 6 ]; then
+				echo 'sh modules/xyz2crd.mdu >/dev/null 2>&1' >> ../mdenm-run
+				echo ' ' >> ../mdenm-run
+			fi
+			if [ $opt -eq 5 ]; then
+				echo 'sed 's/input-pff.txt/input-pff2.txt/g' modules/pff-vector.mdu > modules/pff-vector2.mdu' >> ../mdenm-run
+				echo 'sed -i 's/PRTN/SLCT/g' modules/pff-vector2.mdu' >> ../mdenm-run
+				echo ' ' >> ../mdenm-run
+				echo 'sed 's/PRTN/SLCT/g' modules/nm-correc.mdu > modules/nm-correc2.mdu' >> ../mdenm-run
+				echo 'sed -i 's/average-/local-/g' modules/nm-correc2.mdu' >> ../mdenm-run
+				echo ' ' >> ../mdenm-run
+			fi
+			echo 'echo "mkdir rep\$1" >> run.sh' >> ../mdenm-run
+            echo 'echo "echo "set startmd 0" > rep\$1/start-md.txt" >> run.sh' >> ../mdenm-run
+			echo 'echo " " >> run.sh' >> ../mdenm-run
+			if [ $nodes -eq 0 ]; then
+				echo 'echo "sed "s/outputname/'$output'/g" inputs/single-slurm.job > rep\$1/rep-\$1.job" >> run.sh' >> ../mdenm-run
+			else
+				echo 'echo "sed "s/outputname/'$output'/g" inputs/parallel-slurm.job > rep\$1/rep-\$1.job" >> run.sh' >> ../mdenm-run
+				echo 'echo "sed -i "s/PROC1/'$((proc - 1))'/g" rep\$1/rep-\$1.job" >> run.sh' >> ../mdenm-run
+				echo 'echo "sed -i "s/PROC2/'$proc'/g" rep\$1/rep-\$1.job" >> run.sh' >> ../mdenm-run
+			fi
+			echo 'echo "sed -i "s/xxx/\$1/g" rep\$1/rep-\$1.job" >> run.sh' >> ../mdenm-run
+			if [ $opt -eq 0 ] || [ $opt -eq 4 ] || [ $opt -eq 9 ]; then
+				echo 'echo "sed -i "s/charmm -i/srun charmm -i/g" src/dihe-comp" >> run.sh' >> ../mdenm-run
+				echo 'echo "sed "s/rep=/rep=\$1/g" modules/dihe-run.mdu > rep\$1/dihe-run.mdu" >> run.sh' >> ../mdenm-run
+			fi
+			if [ $opt -eq 1 ]; then
+				echo 'echo "sed -i "s/charmm -i/srun charmm -i/g" src/enm-comp" >> run.sh' >> ../mdenm-run
+			fi
+			if [ $opt -eq 3 ] || [ $opt -eq 8 ]; then
+				echo 'echo "sed -i "s/charmm -i/srun charmm -i/g" rep\$1/local-run.mdu" >> run.sh' >> ../mdenm-run
+				echo 'echo "sed "s/rep=/rep=\$1/g" modules/local-run.mdu > rep\$1/local-run.mdu" >> run.sh' >> ../mdenm-run
+			fi
+			echo 'echo " " >> run.sh' >> ../mdenm-run
+			echo 'echo "sbatch rep\$1/rep-\$1.job" >> run.sh' >> ../mdenm-run
+			echo 'echo "sleep 5s" >> run.sh' >> ../mdenm-run
+			break;;
+
+			* ) tput setaf 1; echo $pgmwrn 'Invalid option.'; tput sgr0;;
+	esac
+done
+echo 'echo " " >> run.sh' >> ../mdenm-run
+echo 'echo "exit" >> run.sh' >> ../mdenm-run
+echo 'echo " " >> run.sh' >> ../mdenm-run
+if [ $opt -ge 2 ] && [ $opt -le 5 ] || [ $opt -eq 7 ]; then
+	echo ' ' >> ../mdenm-run
+	echo 'cd modules' >> ../mdenm-run
+	if [ "$execenv" == "BASH" ]; then
+		echo 'charmm -i wrt-nm.mdu -o ../inputs/wrt-nm.out' >> ../mdenm-run
+	elif [ "$execenv" == "PBS" ]; then
+		echo 'module purge' >> ../mdenm-run
+		echo 'module load charmm' >> ../mdenm-run
+		echo 'charmm -i wrt-nm.mdu -o ../inputs/wrt-nm.out' >> ../mdenm-run
+	else
+		echo 'module purge' >> ../mdenm-run
+		echo 'module load charmm' >> ../mdenm-run
+		echo 'srun charmm -i wrt-nm.mdu -o ../inputs/wrt-nm.out' >> ../mdenm-run
+	fi
+	echo 'cd ..' >> ../mdenm-run
+fi
+echo ' ' >> ../mdenm-run
+echo ' ' >> ../mdenm-run
+echo 'seq '$reptot' | xargs -n 1 -P '$proc' sh run.sh >/dev/null 2>&1' >> ../mdenm-run
+echo ' ' >> ../mdenm-run
+echo 'rm run.sh' >> ../mdenm-run
+echo ' ' >> ../mdenm-run
+echo 'echo " "' >> ../mdenm-run
+echo 'echo "+mdenm-run> Jobs were submitted."' >> ../mdenm-run
+echo 'echo "+mdenm-run> Please look the outputs at each replica directory."' >> ../mdenm-run
+echo 'echo " "' >> ../mdenm-run
+echo ' ' >> ../mdenm-run
+echo 'exit' >> ../mdenm-run
+
+# -
+chmod +x ../src/*-comp
+chmod +x ../modules/*-run.mdu
+chmod +x ../modules/xyz2crd.mdu
+chmod +x ../mdenm-run
+
+echo ' '
+pwd=$(pwd | sed 's/inputs//')
+tput bold
+echo $pgmnam 'MDeNM executable file was created at '$pwd'mdenm-run.'
+tput sgr0
+echo ' '
+echo $pgmnam 'You can now run it by tiping `./mdenm-run`.'
+if [ "$execenv" == "PBS" ]; then
+	echo $pgmnam 'Plase make sure to appropriately edit the header of `model-pbs.job` file before execute MDeNM.'
+elif [ "$execenv" == "SLURM" ]; then
+	echo $pgmnam 'Plase make sure to appropriately edit the header of `model-slurm.job` file before execute MDeNM.'
+fi
+echo ' '
+#	echo ' '
+#	echo ' If this files are being useful, consider to cite:'
+#	echo ' '
+#	echo '		Resende-Lara, P. T. et al. Journal volume(issue), 1-999.'
+#	echo ' '
+#	echo ' '
+echo $pgmnam 'Configuration is done.'
+echo $pgmnam 'Normal end.'
+echo ' '
+
+exit

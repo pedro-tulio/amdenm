@@ -1,0 +1,28 @@
+set psffile [glob ../inputs/*.psf]
+
+mol new $psffile
+mol addfile coor-prot.dcd first 0 last -1 step 1 waitfor all
+
+# load necessary tcl functions  (Ref : http://www.ks.uiuc.edu/Research/vmd/vmd-1.7.1/ug/node182.html )
+source ../lib/gyr_radius.lib
+source ../lib/center_of_mass.lib
+
+set outfile [open radius_of_gyration.dat w]
+set nf [molinfo top get numframes] 
+set i 0
+
+set prot [atomselect top "protein"]
+while {$i < $nf} {
+
+    $prot frame $i
+    $prot update
+
+    set i [expr {$i + 1}]
+    set rog [gyr_radius $prot]
+
+    puts $outfile "$rog"
+
+} 
+
+close $outfile
+exit

@@ -1,0 +1,63 @@
+! ====================================== !
+! COMBINE AND NORMALIZE ENM NORMAL MODES !
+! ====================================== !
+
+! open the additional inputfile that includes the modes to excite
+open read card unit 46 name input-enm.txt
+
+scalar sca5 set 0 sele PRTN end
+scalar sca6 set 0 sele PRTN end
+scalar sca7 set 0 sele PRTN end
+
+! generate random seeds to excite the modes
+stream ../lib/seed.str
+
+rewind unit 46
+get dirnam unit 46
+
+set imode 0
+label enmread
+get modnu unit 46
+incr imode by 1
+
+if modnu .eq. 999 goto enmstop
+open read file unit 17 name @dirnam/@modnu.vec
+read coor file comp unit 17
+
+! determinate the sign of the vector
+stream ../lib/sign.str
+
+open write card unit 98 name temp.txt
+outu 98
+scalar sca1 show sele bynu @imode:@imode end
+outu 6
+scalar sca1 show sele bynu @imode:@imode end
+close  unit 98
+system "sed -n 6p temp.txt | awk '{print $7}' > temp2.txt" 
+
+open read card unit 98 name temp2.txt
+
+! obtain random values to excite the modes
+stream ../lib/random-modes.str
+close unit 98
+
+goto enmread
+
+label enmstop
+
+scalar xcomp recall 5 sele PRTN end
+scalar ycomp recall 6 sele PRTN end
+scalar zcomp recall 7 sele PRTN end
+
+scalar xcomp set 0 sele .not. PRTN end
+scalar ycomp set 0 sele .not. PRTN end
+scalar zcomp set 0 sele .not. PRTN end
+
+! normalize the Q vector
+stream ../lib/qnorm.str
+
+! write the Q vector 
+open write file unit 97 name enm-vector.vec
+write coor comp file unit 97
+
+close unit 46

@@ -1,0 +1,23 @@
+! CHECK NORM
+! The result is in @check
+
+! Working arrays: sca7, sca8 and sca9
+
+scalar zero stor 7
+scalar zero stor 8
+scalar zero stor 9
+
+scalar sca7 copy xcomp
+scalar sca8 copy ycomp
+scalar sca9 copy zcomp
+
+scalar sca7 pow2r
+scalar sca8 pow2r
+scalar sca9 pow2r
+
+scalar sca7 sum sca8
+scalar sca7 sum sca9
+
+scalar sca7 stat
+set check ?stot
+calc check = sqrt(@check)

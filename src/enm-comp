@@ -1,0 +1,907 @@
+#!/bin/bash 
+#CoM====================================================================
+#CoM...ENM-modes: Normal modes of an Elastic Network Model.
+#CoM--------------------------------------------------------------------
+#CoM
+#CoM   Main goal: 
+#CoM   ++++++++++
+#CoM
+#CoM  *To build and Elastic Network Model (ENM) and to compute
+#CoM   the low-frequency normal modes of a set of systems.
+#CoM
+#CoM   Properties:
+#CoM   +++++++++++
+#CoM
+#CoM  *Input coordinate files, in PDB or in FREE format.
+#CoM
+#CoM  *Enable ENM calculations of only C-alpha atoms.
+#CoM
+#CoM  *Enable ENM calculations of a user-defined residue selection.
+#CoM
+#CoM  *In all-atom calculations, all ATOM and HETATM lines are taken
+#CoM   into account. 
+#CoM
+#CoM  *Output eigenvector (mode) filenames are built with input ones.
+#CoM   They are written in current directory.
+#CoM
+#CoM  *Uses programs pdbmat and diagstd or diagrtb.
+#CoM
+#CoM  *Generates CHARMM binary modefile.
+#CoM
+#CoM  *Source (fortran) programs are compiled in current directory.
+#CoM   Purpose: to be able to reproduce the analysis in the future.
+#CoM
+#CoM   Attention : 
+#CoM   +++++++++++
+#CoM
+#CoM  *Uses temporary files. 
+#CoM   So, DO NOT run this script twice at a time in same directory !
+#CoM
+#CoM------------------------------------------------------------------------
+#CoM   This software is released under the CeCILL FREE SOFTWARE LICENSE.
+#CoM   In short: this license is compatible with the GNU GPL.
+#CoM   Specifically: it grants users the right to modify and redistribute 
+#CoM   this software within the framework of an open source distribution 
+#CoM   model. The complete text of the license can be found there:
+#CoM   http://www.cecill.info/licences/Licence_CeCILL_V2-en.html
+#CoM------------------------------------------------------------------------
+#CoM
+#CoM   This version was developed by Pedro Túlio de Resende Lara based
+#CoM   on the code of Dr. Yves-Henri Sanejouand available at:
+#CoM   http://www.sciences.univ-nantes.fr/elnemo
+#CoM
+#CoM
+#CoM   The following features were added:
+#CoM
+#CoM  *C-alpha ENM calculations.
+#CoM
+#CoM  *User-defined residue selection.
+#CoM
+#CoM  *CHARMM integration.
+#CoM
+#CoM
+#CoM   Last update: 12/05/2017
+#CoM
+#CoM   Please mail bug reports to pedro.lara[at]ufabc.edu.br
+#
+version='v1.13, May 2017.'
+
+# Location (path) of fortran programs:
+# ------------------------------------
+pgmdir=~/inputs/shell/fortran
+
+# Fortran compiler used (for instance, under Ubuntu: gfortran):
+# -------------------------------------------------------------
+gfor=gfortran
+
+# Fortran programs and versions used hereafter:
+# ---------------------------------------------
+# Hessian building:
+tirmat='pdbmat'
+vrstir='3.106'
+
+# Diagonalization.
+# Standard (for small systems):
+diamat='diagstd'
+vrsdia='1.22'
+
+# RTB:
+rtbmat='diagrtb'
+vrsrtb='2.67'
+
+pgmprf='ENM-modes'
+pgmnam='+'$pgmprf'> '
+pgmwrn='%'$pgmprf'-Wn> '
+pgmerr='%'$pgmprf'-Er> '
+
+echo ' '
+echo $pgmnam 'Computes low-frequency modes of an Elastic Network Models.'
+echo $pgmnam $version
+echo ' '
+
+# Arguments and options are read:
+# -------------------------------
+
+# Defaults:
+nvecreq=106
+rcut=NONE
+kfce=1.0
+mass=CONS
+meth=RTB
+out=CERFACS
+debug=NO
+prtl=0
+charmm=NO
+ca=NO
+ires=FIRST
+fres=LAST
+
+# File list to finish the run:
+lstfil=NONE
+if [ $# -gt 0 ] 
+then
+help=OFF
+nargrd=$#
+nargs=0
+while [ $nargs -lt $nargrd ]
+do
+# Reading the options:
+  cmd=`echo '+'$1 | tr '[A-Z]' '[a-z]' | sed 's/+//'`
+  case $cmd in 
+ '-h'|'-help') 
+   help=ON 
+   nargs=$(( $nargs + 1 ))
+  ;;
+  *)
+  if [ $# -ge 2 ] ; then
+  nargs=$(( $nargs + 2 ))
+  fcararg=`echo $2 | cut -c1`
+  if [ $fcararg = \- ] ; then
+  case $2 in
+  *[!\-,!\.,!0-9]*)
+  echo ' '
+  echo $pgmerr $cmd 'must be followed by a parameter (or by a number).'
+  lstfil=FOUND
+  nargs=$nargrd
+  help=ON
+  esac
+  fi
+  case $cmd in
+ '-f')   
+  nfil=$(( $# - 1 ))
+  nargs=$nargrd
+  lstfil=FOUND
+  ;;
+ '-c'|'-cut'|'-cutof'|'-cutoff') rcut=$2 ;;
+ '-com'|'-comp'|'-compil'|'-compiler') gfor=$2 ;;
+ '-con'|'-cons'|'-constant') kfce=$2 ;;
+ '-d'|'-deb'|'-debug') debug=$2 ;;
+ '-for'|'-fort'|'-fortran') pgmdir=$2 ;;
+ '-k')  kfce=$2 ;;
+ '-mas'|'-mass'|'-masses')  mass=$2 ;;
+ '-met'|'-meth'|'-method')  meth=$2 ;;
+ '-charmm')  charmm=$2 ;;
+ '-calpha'|'-c-alpha'|'-ca')  ca=$2 ;;
+ '-ires')  ires=$2 ;;				
+ '-fres')  fres=$2 ;;		
+ '-m'|'-mod'|'-mode'|'-modes') nvecreq=$2 ;;
+ '-o'|'-out'|'-outp'|'-output') out=$2 ;;
+ '-p'|'-prt'|'-pri'|'-print') prtl=$2 ;;
+ '-sou'|'-source') pgmdir=$2 ;;
+ '-v'|'-vec'|'-vect'|'-vector'|'-vectors') nvecreq=$2 ;;
+  *) 
+  echo ' '
+  echo $pgmerr $cmd 'is not an expected option.'
+  lstfil=FOUND
+  nargs=$nargrd
+  help=ON
+  ;;
+  esac
+# Next argument:
+  if [ $lstfil = NONE ] ; then shift ; fi
+  else
+  echo ' '
+  echo $pgmerr $cmd 'is the last argument ?'
+  nargs=$(( $nargs + 1 ))
+  help=ON
+  fi
+  ;;
+  esac
+# Next argument:
+  shift 
+done
+# No argument:
+else
+help=ON
+fi
+
+if [ $lstfil = NONE -a $help = OFF ] ; then
+echo ' '
+echo $pgmerr '-f filename(s): required.'
+help=ON
+fi
+
+if [ $help = ON ] ; then
+pgmout=`echo $pgmprf | tr '[A-Z]' '[a-z]'`
+echo ' '
+echo ' Action: Computes low-frequency modes of Elastic Network Models.'
+echo ' Usage : ./'$pgmout' { arguments } { options } -f filename(s)'      
+echo ' '
+echo ' Last argument:'
+echo '-file    coordinate-filename(s)                                           (mandatory)'
+echo ' '
+echo ' Main arguments:'
+echo '-cutoff  cutoff-distance-for-building-the-Elastic-Network-Model           (default:' $rcut')'
+echo ' '
+echo ' Other options:'
+echo '-vectors      number-of-modes-required                                    (default:' $nvecreq')'
+echo '-constant     for-the-harmonic-springs                                    (default:' $kfce')'
+echo '-masses       of-atoms                                                    (default:' $mass')'
+echo '-method       used-for-diagonalization                                    (default:' $meth')'
+echo '-charmm       generate-charmm-mode-file                                   (default:' $charmm')'
+echo '-calpha       consider-only-calpha-atoms                                  (default:' $ca')'
+echo '-ires         first-residue-selected                                      (default:' $ires')'
+echo '-fres         last-residue-selected                                       (default:' $fres')'
+echo '-output       eigenvector-format                                          (default:' $out')'
+echo '-compile      fortran-compiler                                            (default:' $gfor')'
+echo '-source       path-to-fortran-sources                                     (default:' $pgmdir')'
+echo '-print        level-for-outputs                                           (default:' $prtl')'
+echo ' '
+exit
+fi
+
+# Check the command entries:
+# =======
+pb=NO
+
+metup=`echo $meth | tr '[a-z]' '[A-Z]'`
+case $metup in
+RTB) 
+  meth=$metup 
+[[ $rcut = NONE ]] && rcut=5.0
+;;
+ST|STA|STAN|STAND|STANDA|STANDAR|STANDARD) 
+  meth=STANDARD 
+[[ $rcut = NONE ]] && rcut=12.0
+;;
+*) 
+  echo ' '
+  echo $pgmerr '-method: valid diagonalisation method name required (STANDARD or RTB).'
+  pb=YES ;;
+esac
+
+case $rcut in
+*[!0-9,!\.]*) 
+  echo ' '
+  echo $pgmerr '-cutoff: positive real number required (distance Cutoff value).'
+  pb=YES
+esac
+
+vecopt=$( echo $nvecreq | tr '[a-z]' '[A-Z]' )
+case $vecopt in
+ALL) ;; 
+*[!0-9,!\-]*) 
+  echo ' '
+  echo $pgmerr '-vectors: integer number required (number of Vectors).'
+  pb=YES
+esac
+
+case $kfce in
+*[!0-9,!\.]*) 
+  echo ' '
+  echo $pgmerr '-constant: positive real number required (force-constant value).'
+  pb=YES
+esac
+
+case $prtl in
+*[!0-9,!\-]*) 
+  echo $pgmwrn '-print: integer number required (printing level).'
+  prtl=0
+esac
+
+outup=`echo $out | tr '[a-z]' '[A-Z]'`
+case $outup in
+CERF|CERFA|CERFACS)
+  out=CERFACS ;;
+MOD|MODE|MODES)
+  out=MODES ;;
+*) 
+  echo ' '
+  echo $pgmerr '-output: valid output eigenvector format required (CERFACS or MODES).'
+  pb=YES ;;
+esac
+
+charmmup=`echo $charmm | tr '[a-z]' '[A-Z]'`
+case $charmmup in
+Y|YES|O|OUI|T|TRUE)
+  charmm=YES ;;
+N|NO|NON|F|FALSE)
+  charmm=NO ;;
+*)
+  echo ' '
+  echo $pgmerr '-charmm: boolean required (YES or NO).'
+  pb=YES
+esac
+
+caup=`echo $ca | tr '[a-z]' '[A-Z]'`									
+case $caup in
+Y|YES|O|OUI|T|TRUE)
+  ca=YES && rcut=12.0 ;;
+N|NO|NON|F|FALSE)
+  ca=NO ;;
+*)
+  echo ' '
+  echo $pgmerr '-calpha: boolean required (YES or NO).'
+  pb=YES
+esac
+
+iresopt=$( echo $ires | tr '[a-z]' '[A-Z]' )
+case $iresopt in
+FIRST) ires=1 ;;
+*[!0-9,!\-]*)
+  echo ' '
+  echo $pgmerr '-ires: integer number required (first residue selection).'
+  exit
+esac
+
+fresopt=$( echo $fres | tr '[a-z]' '[A-Z]' )
+case $fres in
+LAST) fres=1 ;;
+*[!0-9,!\-]*)
+  echo ' '
+  echo $pgmerr '-fres: integer number required (last residue selection).'
+  exit
+esac
+
+if [ $ires != 1 ] && [ $fres != 1 ] ; then
+   if [ $ires -gt $fres ] ; then
+   		echo ' '
+  		echo $pgmerr 'The number of the last residue must be greater than the first.'
+  		pb=YES
+   fi
+fi
+
+debup=`echo $debug | tr '[a-z]' '[A-Z]'`
+case $debup in
+Y|YES|O|OUI|T|TRUE) 
+  debug=YES ;;
+N|NO|NON|F|FALSE)
+  debug=NO ;;
+*)
+  echo ' ' 
+  echo $pgmwrn '-debug: boolean required (YES or NO).' ;;
+esac
+
+if [ $pb = YES ] ; then exit ; fi
+
+# Compiling:
+# ==========
+# Compiling fortran codes (if needed):
+
+# Pdbmat:
+# -------
+fornam=$tirmat
+forvrs=$vrstir
+
+# Full fortran program name:
+vforpgm=$fornam'.f_v'$forvrs
+[[ ! -f $vforpgm ]] && vforpgm=$pgmdir/$fornam'.f_v'$forvrs
+
+forcur=$fornam'_vcur.f'
+execur=$fornam'_vcur'
+ndiff=-1
+if [ -f $vforpgm -a -f $forcur ] ; then
+ndiff=`diff -s $vforpgm $forcur | grep -c '<'`
+if [ $ndiff -gt 0 ] ; then
+   echo $pgmwrn '"'$forcur'" and "'$vforpgm'" differ. Former one replaced (a copy is saved).'
+   cp $forcur $forcur'_old'
+   cp $vforpgm $forcur
+   rm -f $execur
+fi
+else
+if [ -f $forcur ] ; then
+   echo $pgmwrn 'Fortran source "'$vforpgm'" (see top of script) not found.'
+   echo $pgmwrn 'Local fortran source to be used without checking if it is the expected one.'
+fi
+if [ -f $vforpgm ] ; then
+   echo $pgmwrn 'Fortran source "'$vforpgm'" copied locally.'
+   cp $vforpgm $forcur
+   ndiff=0
+fi
+fi
+
+if [ -x $execur ] ; then
+echo $pgmwrn 'Local executable "'$execur'" to be used.'
+if [ $ndiff -gt 0 ] ; then 
+   echo $pgmwrn 'It is expected to have been compiled using "'$vforpgm'".' 
+else
+   if [ -f $vforpgm ] ; then echo $pgmwrn 'It may have been compiled using "'$vforpgm'"' ; fi
+fi
+else
+echo $pgmnam 'Where is the fortran compiler ?'
+if ! which $gfor ; then
+   echo ' '
+   echo $pgmerr $gfor 'fortran compiler needed (see top of script).'
+   exit
+fi
+if [ -f $forcur ] 
+then
+   echo $pgmnam 'Fortran compilation to be performed locally.'
+   vcur=`grep 'version=' $forcur | head -1 | sed 's/version=//' | sed 's/ Vers/vers/'`
+   echo $pgmnam 'To be compiled:' $vcur
+   $gfor -o $execur $forcur
+else
+   echo ' '
+   echo $pgmerr 'No local executable.'
+   echo $pgmerr 'Fortran source "'$vforpgm'" required (see top of script).'
+   exit
+fi
+if [ -x $execur ] ; then
+   echo $pgmnam 'Local executable' $execur 'built in current directory.'
+else
+   echo ' '
+   echo $pgmerr 'Compilation of' $forcur 'failed.'
+   exit
+fi
+fi
+exemat=$execur
+
+fordat=$fornam'.dat'
+cat > $fordat << EOFmat 
+COORdinate FILENAME        = structure.pdb
+MATRIx FILENAME            = structure.sdijf
+SAVED coordinate FILENAME  = structure.xyzm
+INTERACtion DISTance CUTOF = $rcut
+INTERACtion FORCE CONStant = $kfce
+MASS values                = $mass
+LevelSHIFT                 = 0.0001
+Output PRINTing level      = $prtl
+EOFmat
+
+# Diagrtb:
+# --------
+case $meth in
+STANDARD)
+fornam=$diamat
+forvrs=$vrsdia ;;
+RTB)
+fornam=$rtbmat
+forvrs=$vrsrtb ;;
+esac
+
+# Full fortran program name:
+vforpgm=$fornam'.f_v'$forvrs
+[[ ! -f $vforpgm ]] && vforpgm=$pgmdir/$fornam'.f_v'$forvrs
+
+forcur=$fornam'_vcur.f'
+execur=$fornam'_vcur'
+ndiff=-1
+if [ -f $vforpgm -a -f $forcur ] ; then
+ndiff=`diff -s $vforpgm $forcur | grep -c '<'`
+if [ $ndiff -gt 0 ] ; then
+   echo $pgmwrn '"'$forcur'" and "'$vforpgm'" differ. Former one replaced (a copy is saved).'
+   cp $forcur $forcur'_old'
+   cp $vforpgm $forcur
+   rm -f $execur
+fi
+else
+if [ -f $forcur ] ; then
+   echo $pgmwrn 'Fortran source "'$vforpgm'" (see top of script) not found.'
+   echo $pgmwrn 'Local fortran source to be used without checking if it is the expected one.'
+fi
+if [ -f $vforpgm ] ; then
+   echo $pgmwrn 'Fortran source "'$vforpgm'" copied locally.'
+   cp $vforpgm $forcur
+   ndiff=0
+fi
+fi
+
+if [ -x $execur ] ; then
+echo $pgmwrn 'Local executable "'$execur'" to be used.'
+if [ $ndiff -gt 0 ] ; then 
+   echo $pgmwrn 'It is expected to have been compiled using "'$vforpgm'".' 
+else
+   if [ -f $vforpgm ] ; then echo $pgmwrn 'It may have been compiled using "'$vforpgm'"' ; fi
+fi
+else
+if [ -f $forcur ] 
+then
+   echo $pgmnam 'Fortran compilation to be performed locally.'
+   vcur=`grep 'version=' $forcur | head -1 | sed 's/version=//' | sed 's/ Vers/vers/'`
+   echo $pgmnam 'To be compiled:' $vcur
+   $gfor -o $execur $forcur
+else
+   echo ' '
+   echo $pgmerr 'No local executable.'
+   echo $pgmerr 'Fortran source "'$vforpgm'" required (see top of script).'
+   exit
+fi
+if [ -x $execur ] ; then
+   echo $pgmnam 'Local executable' $execur 'built in current directory.'
+else
+   echo ' '
+   echo $pgmerr 'Compilation of' $forcur 'failed.'
+   exit
+fi
+fi
+
+case $meth in
+STANDARD)
+cat > enm_modes.head_diag << EOFstd
+structure.sdijf
+n
+EOFstd
+diaginp=$fornam'.inp'
+exestd=$execur ;;
+RTB) 
+cat > enm_modes.head_diag << EOFrtb 
+COORdinate filename         = structure.xyzm
+MATRIx FILENAME             = structure.sdijf
+Eigenvector OUTPut filename = structure.eigenfacs
+Nb of residues per BLOck    = 1
+Origin of MASS values       = $mass
+Output PRINting level       = $prtl
+EOFrtb
+fordat=$fornam'.dat'
+exertb=$execur ;;
+esac
+
+pgmsum=`echo $pgmprf | tr '[A-Z]' '[a-z]'`
+pgmsum=$pgmsum'.sum'
+if [ -f $pgmsum ]
+then
+  echo $pgmwrn $pgmsum 'file already exists. A copy is saved.'
+  mv $pgmsum $pgmsum'_old'
+fi
+# Single column title (for awk, gnuplot, etc):
+echo $pgmnam $version | sed 's/ //g' > $pgmsum
+echo $pgmnam 'Job started on' `date` ',in' $HOST 'directory' `pwd` | sed 's/ //g' >> $pgmsum
+echo ' PDB, Atoms, Residues, Non-zero matrix elements, Vectors, Eigenvalues 7, 8, 9 ' >> $pgmsum
+
+# Loop on input files(s):
+# =======================
+
+# Check: only files among arguments left ? 
+if [ `ls $* 2>&1 | grep -c 'ls:'` -eq 0 ] ; then
+   nargs=$#
+else
+   echo ' '
+   echo $pgmerr 'Last arguments are ALL expected to be valid filename(s).'
+   exit
+fi
+echo ' '
+echo $pgmnam $nfil 'filename(s) to be considered.'
+
+diag=NO
+if [ $vecopt = ALL ] ; then
+   diag=OK
+else
+   [[ $nvecreq -gt 0 ]] && diag=OK
+fi
+if [ $diag = OK ] ; then
+echo $pgmnam $nvecreq 'modes to be computed with the' $meth 'method and an ENM distance-cutoff of' $rcut '(Angs).'
+else
+echo $pgmnam 'Hessian to be computed for each structure, with an ENM distance-cutoff of' $rcut '(Angs).'
+fi
+echo ' '
+
+rcutout=`echo $rcut | sed 's/\./p/'`
+nargrd=$nargs
+nargs=0
+nhes=0
+nmod=0
+while [ $nargs -lt $nargrd ]
+do
+echo $pgmnam 'File: "'$1'"'
+cp $1 tmp.pdb
+
+# Test if the PDB file has chain identifiers
+re='^[0-9]+([.][0-9]+)?$'
+rct=$(grep ' CA ' tmp.pdb | head -n 1 | awk '{print $5}')
+if ! [[ $rct =~ $re ]] ; then 
+	resclm='$6'
+else
+	resclm='$5'
+fi
+
+# Identifies the first and last residues
+fst=$(grep ' CA ' tmp.pdb | head -n 1 | awk '{print '$resclm'}')
+lst=$(grep ' CA ' tmp.pdb | tail -n 1 | awk '{print '$resclm'}')
+
+if [ $ires == 1 ] && [ $fres == 1 ] ; then
+	ires=$fst
+	fres=$lst
+fi
+
+# Manipulates the coordinate if applicable
+if [ $ca == NO ] ; then
+	sed -i 's/HSD/HIS/g' tmp.pdb
+	for m in $(seq $ires $fres); do
+		awk '/ATOM/ {if ('$resclm' == '$m') print $0;}' tmp.pdb >> structure.pdb
+	done
+else
+	grep ' CA ' tmp.pdb > tmp1.pdb
+	sed -i 's/HSD/HIS/g' tmp1.pdb
+	for m in $(seq $ires $fres); do
+		awk '/ATOM/ {if ('$resclm' == '$m' && $3 == "CA") print $0;}' tmp1.pdb >> structure.pdb
+	done
+	rm -f tmp*pdb
+fi
+
+echo $pgmnam 'Hessian matrix to be set up.'
+
+rm -f structure.sdijf structure.xyzm
+./$exemat > enm_modes.out_matrix
+
+if [ -f structure.sdijf -a -f structure.xyzm ] ; then
+   nelmt=`awk '{ if ( $3 == "non-zero" && $4 == "elements." ) print $2 }' enm_modes.out_matrix`
+   if [ ${#nelmt} -eq 0 ] ; then nelmt=0 ; fi
+else
+   nelmt=0
+fi
+
+if [ $nelmt -gt 0 ] ; then
+nat=`grep 'Number of atoms found'    enm_modes.out_matrix | awk -F'=' '{ if ( NF == 2 ) print $2 ; else print "0" }'`
+nrs=`grep 'Number of residues found' enm_modes.out_matrix | awk -F'=' '{ if ( NF == 2 ) print $2 ; else print "0" }'`
+echo $pgmnam $nat 'atoms taken into account.'
+echo $pgmnam $nrs 'residues taken into account.'
+grep 'non-zero elements' enm_modes.out_matrix
+natmin=$(( 3*$nrs ))
+if [ $meth = RTB ] ; then
+if [ $nat -lt $natmin ] ; then
+   echo $pgmwrn 'Not enough atoms per residue for the RTB method.'
+   nelmt=0
+fi
+fi
+fi
+
+if [ $nelmt -gt 0 ] ; then
+nhes=$(( $nhes + 1 ))
+if [ $diag = OK ] ; then
+echo $pgmnam 'Hessian matrix to be diagonalized.'
+
+case $vecopt in
+ALL)
+[[ $meth = STANDARD ]] && nvec=$(( 3*$nat )) 
+[[ $meth = RTB ]] && nvec=$(( 3*$nrs )) 
+;;
+*)
+nvec=$nvecreq ;;
+esac
+
+rm -f structure.eigenfacs
+case $meth in 
+STANDARD)
+cp enm_modes.head_diag $diaginp
+echo $nvec >> $diaginp
+
+./$exestd < $diaginp > enm_modes.out_diag 
+;;
+RTB) 
+cp enm_modes.head_diag $fordat
+echo 'Nb of VECTors required      =' $nvec >> $fordat
+
+./$exertb > enm_modes.out_diag 
+;;
+esac
+
+if [ -f structure.eigenfacs ] ; then
+   nvecout=`grep -c VECTOR structure.eigenfacs`
+else
+   nvecout=0
+fi
+
+if [ $nvecout -gt 0 ] ; then
+if [ $nvecout -ne $nvec ] ; then echo $pgmwrn $nvecout 'modes obtained.' ; fi
+egrep -A2 'Selected eigenvalues:|Eigenvalues:' enm_modes.out_diag
+
+case $meth in
+STANDARD) suffx='_r'$rcutout'_'$nvecout'' ;;
+RTB) suffx='_r'$rcutout'rtb_'$nvecout'' ;;
+esac
+
+vecfil=`basename $1`
+pref=`echo $vecfil | awk -F'.' '{ print $1 }'`
+if [ ${#pref} -gt 0 ] ; then
+   nomvec=${pref}${suffx}
+else
+   nomvec=${vecfil}${suffx}
+fi
+
+if [ $out = CERFACS ] ; then
+   nomvec=$nomvec'.eigenfacs'
+   cp structure.eigenfacs $nomvec
+else
+   nomvec=$nomvec'.modes'
+   echo '!' $pgmnam $version > $nomvec
+   if grep -q 'Coordinate file in PDB format' enm_modes.out_matrix ; then
+   echo 'MODEL 1'           >> $nomvec
+   awk '{ if ( $1 == "ATOM" || substr($1,1,6) == "HETATM" ) print }' structure.pdb >> $nomvec
+   echo 'ENDMDL'            >> $nomvec
+   echo 'MODEL 2'           >> $nomvec
+   else
+   echo 'MODEL'             >> $nomvec
+   fi
+   cat structure.xyzm       >> $nomvec
+   echo 'ENDMDL'            >> $nomvec
+   echo 'MODES'             >> $nomvec
+   cat structure.eigenfacs  >> $nomvec
+   echo 'ENDMOD'            >> $nomvec
+fi
+
+eig7=$( awk '{ if ( $1 == "VECTOR" && $2 == "7" ) print $4 }' structure.eigenfacs )
+eig8=$( awk '{ if ( $1 == "VECTOR" && $2 == "8" ) print $4 }' structure.eigenfacs )
+eig9=$( awk '{ if ( $1 == "VECTOR" && $2 == "9" ) print $4 }' structure.eigenfacs )
+
+echo $pgmnam 'File "'$nomvec'" saved.'
+nmod=$(( $nmod + 1 ))
+else
+
+echo $pgmwrn 'Hessian matrix could not be diagonalized.'
+cp enm_modes.out_diag enm_modes.out_diag_lastpb
+nvecout=0
+eig7=NONE
+eig8=NONE
+eig9=NONE
+
+fi
+fi
+echo $1"," $nat"," $nrs"," $nelmt"," $nvecout"," $eig7"," $eig8"," $eig9 >> $pgmsum
+else
+echo $pgmwrn 'Hessian matrix could not be produced.'
+cp enm_modes.out_matrix enm_modes.out_matrix_lastpb
+fi
+
+#
+# CHARMM Files generation
+# =======================
+
+# Topology and Parameters file
+
+
+# System psf file
+
+
+# Coordinates file
+coor=$(echo $1 | sed 's/.pdb/.coor/g')
+
+# Protein selection
+
+
+sed 's/ .\.\/inputs/ \.\.\/\.\.\/inputs/g' ../../inputs/$topfile > toppar.str
+
+if [ $charmm = YES ] ; then
+
+# Split modes from modefile
+   grep -A $(( $nat + 1 )) 'VECTOR' $nomvec > tmp
+   digits=$(echo $nvecout | wc -m); digits=$(( $digits - 1 ))
+   split -l $(( $nat + 2 )) tmp mode- -d -a $digits
+   end=$(( $nvecout - 1 ))
+   o=1
+   for m in $(seq -w 0 $end)
+   do
+		mv mode-$m mode-$o.dat
+		o=$(( $o + 1 ))
+   done
+   rm -f tmp
+   
+### Print the modes at .univ format to be read by CHARMM
+
+   echo ' '
+   if [ $ca == YES ] ; then
+	crd=$(echo $1 | sed 's/.pdb/.crd/g')
+	awk '{if ($4 == "CA") print $0;}' $crd >> tmp
+   else
+	cp ../../rep$rep/temporary.crd tmp
+   fi
+   for m in $(seq $ires $fres); do
+   	awk '{if ($9 == '$m') print $0;}' tmp >> tmp2
+   done
+
+   for s in $(seq 1 $nvecout)
+		do
+			sed 1,2d mode-$s.dat > tmp
+ 			paste tmp2 tmp | awk '{printf ("%5s %4s %4s %4s  %14.10f  %14.10f  %14.10f %4s %4s \n", $1, $2, $3, $4, $11, $12, $13, $8, $9)}' >> mode-$s.univ
+   			sed -i 's/+/ /g' mode-$s.univ
+   done
+   rm -f tmp* mode-*.dat
+
+# Export CHARMM script
+
+   echo '* WRITE CHARMM NORMAL MODES FILE' > $nomvec.inp
+   echo '*' >> $nomvec.inp
+   echo '' >> $nomvec.inp
+   echo 'bomlev -5' >> $nomvec.inp
+   echo 'wrnlev -1' >> $nomvec.inp
+   echo 'faster on' >> $nomvec.inp
+   echo '' >> $nomvec.inp
+   echo '! READ TOPOLOGY AND PARAMETER FILES' >> $nomvec.inp
+   echo '! file to some write information' >> $nomvec.inp
+   echo 'open write card unit 22 name /dev/null' >> $nomvec.inp
+   echo 'outu 22' >> $nomvec.inp
+   echo 'stream toppar.str' >> $nomvec.inp
+   echo 'outu 6' >> $nomvec.inp
+   echo '' >> $nomvec.inp
+   echo '!* RV CUSTOM CCDB INPUT FORMAT; .COR + PREPEND SEGID RESN RESID' >> $nomvec.inp
+   echo '!* use * as char 1 for title records in input file' >> $nomvec.inp
+   echo '!*' >> $nomvec.inp
+   echo '' >> $nomvec.inp
+   echo '!' >> $nomvec.inp
+   echo '!1---1 2--2 3--3 4--4  5------------5  6------------6  7------------7 8--8 9--9' >> $nomvec.inp
+   echo '!|---| |--| |--| |--|  |------------|  |------------|  |------------| |--| |--|' >> $nomvec.inp
+   echo '!    5    1 ALA  CA     +0.3533000000   -0.2944000000   +0.1167000000 PROA    1' >> $nomvec.inp
+   echo '' >> $nomvec.inp
+   echo 'read univ card' >> $nomvec.inp
+   echo '* univ custom format parameters' >> $nomvec.inp
+   echo '*' >> $nomvec.inp
+   echo 'unknown' >> $nomvec.inp
+   echo 'titl  1  1 *' >> $nomvec.inp
+   echo 'iseq  1  5	! 1' >> $nomvec.inp
+   echo 'ires  7  4	! 2' >> $nomvec.inp
+   echo 'resn 13  4	! 3' >> $nomvec.inp
+   echo 'type 18  4	! 4' >> $nomvec.inp
+   echo 'x    23 14	! 5' >> $nomvec.inp
+   echo 'y    39 14	! 6' >> $nomvec.inp
+   echo 'z    55 14	! 7' >> $nomvec.inp
+   echo 'segi 70  4	! 8' >> $nomvec.inp
+   echo 'resi 75  4	! 9' >> $nomvec.inp
+   echo 'end' >> $nomvec.inp
+   echo '' >> $nomvec.inp
+   echo 'open read card unit 25 name ../../inputs/'$psffile'' >> $nomvec.inp
+   echo 'read  psf card unit 25' >> $nomvec.inp
+   echo '' >> $nomvec.inp
+   echo '! Define the group formed by the protein' >> $nomvec.inp
+   echo ''$prtn'' >> $nomvec.inp
+   echo '' >> $nomvec.inp
+   echo 'open read file unit 25 name '$coor'' >> $nomvec.inp
+   echo 'read coor file unit 25' >> $nomvec.inp
+   echo '' >> $nomvec.inp
+   echo 'set ntraj '$nvecout'' >> $nomvec.inp
+   echo 'set nu 6' >> $nomvec.inp
+   echo 'label vecloop' >> $nomvec.inp
+   echo 'incr nu by 1' >> $nomvec.inp
+   echo '' >> $nomvec.inp
+   echo 'scalar x set 0' >> $nomvec.inp
+   echo 'scalar y set 0' >> $nomvec.inp
+   echo 'scalar z set 0' >> $nomvec.inp
+   echo '' >> $nomvec.inp
+   echo 'open read card unit 15 name mode-@nu.univ' >> $nomvec.inp
+   echo 'coor read univ unit 15' >> $nomvec.inp
+   echo '' >> $nomvec.inp
+   echo '! mass weight a given mode' >> $nomvec.inp
+   echo 'stream ../../lib/mass-weight.str' >> $nomvec.inp
+   echo '' >> $nomvec.inp
+   echo '! normalize a given mode' >> $nomvec.inp
+   echo 'coor swap' >> $nomvec.inp
+   echo 'stream ../../lib/qnorm.str' >> $nomvec.inp
+   echo '' >> $nomvec.inp
+   echo '! Write the ENM modes' >> $nomvec.inp
+   echo 'open write file unit 16 name '$nomvec'-@nu.vec' >> $nomvec.inp
+   echo 'coor write comp file unit 16 sele PRTN end' >> $nomvec.inp
+   echo '' >> $nomvec.inp
+   echo 'if @nu .lt. @ntraj goto vecloop' >> $nomvec.inp
+   echo '' >> $nomvec.inp
+   echo '' >> $nomvec.inp
+   echo 'stop' >> $nomvec.inp
+
+   run_charmm=`charmm -i $nomvec.inp -o $nomvec.out`
+   echo $run_charmm
+   norm=$(grep 'NORMAL TERMINATION BY NORMAL STOP' $nomvec.out | wc -l)
+   if [ $norm -ne 1 ]; then
+		echo ' '
+  	 	echo $pgmerr 'CHARMM: some error occurred while writing ENM vector files.'
+  	 	echo $pgmerr '        checkout the file '$nomvec'.out for details.'
+		exit
+   fi
+fi
+
+
+# Next filename:
+shift
+nargs=$(( $nargs + 1 ))
+rm -f structure.pdb
+done
+echo ' '
+echo $pgmnam $nhes 'Hessian(s) obtained.'
+echo $pgmnam $nmod 'set(s) of normal modes saved.'
+
+# Statistics:
+# -----------
+if [ $nhes -eq 0 ] ; then 
+   echo $pgmwrn 'Not much.'
+   exit
+else
+   nstat=$nhes
+fi
+nbstat=`tail -n +${nhes} $pgmsum | awk -F',' -v n=$nhes '{ sum+=$4 ; sumsq+=$4*$4 } END { sum=sum/n ; sumsq=sqrt(sumsq/n - sum^2) } END { print sum, "+/-", sumsq }'` 
+echo ' '
+echo $pgmnam 'Statistics for' $nstat 'points:' $nbstat 'non-zero matrix elements.'
+
+# Cleaning:
+if [ $debug = NO ] ; then
+   rm -f structure.pdb structure.sdijf structure.xyzm structure.eigenfacs enm_modes.head_diag tmp.pdb *.univ
+fi
+
+echo ' '
+echo $pgmnam 'Normal end.'
+exit

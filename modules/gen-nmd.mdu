@@ -1,0 +1,19 @@
+echo "nmwiz_load vectors.nmd" > vectors.nmd
+echo "name vectors" >> vectors.nmd
+atmnms=$(awk '/ CA / {print $4}' initcoor.crd | tr '\n' ' ')
+echo "atomnames $atmnms" >> vectors.nmd
+resnms=$(awk '/ CA / {print $3}' initcoor.crd | tr '\n' ' ')
+echo "resnames $resnms" >> vectors.nmd
+resids=$(awk '/ CA / {print $2}' initcoor.crd | tr '\n' ' ')
+echo "resids $resids" >> vectors.nmd
+coor=$(awk '/ CA / {print $5" "$6" "$7}' initcoor.crd | tr '\n' ' ')
+echo "coordinates $coor" >> vectors.nmd
+
+m=0
+while read vector 
+do
+m=$(( $m + 1 ))
+mode=$(awk '/ CA / {print $5" "$6" "$7}' $vector.crd | tr '\n' ' ')
+echo "mode $m 1.00 $mode" >> vectors.nmd
+done < vec-list.txt
+rm vec-list.txt

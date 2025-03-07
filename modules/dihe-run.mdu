@@ -1,0 +1,34 @@
+#!/bin/bash 
+#
+
+pwd=$(pwd)
+
+cd ../dihe
+
+# Replica number
+rep=
+
+folder=rep"$rep"_"$(date | awk '{print $2"-"$3"_"$4}' | tr '[A-Z]' '[a-z]')"
+mkdir $folder
+
+cd $folder
+
+dihe ()	{
+# Do not forget of to change the -ires and -fres option if applicable
+../../src/dihe-comp -f ../../rep$rep/temporary.crd
+}
+
+dihe
+
+echo "../dihe/$folder" > ../../rep$rep/input-dihe.txt
+echo "999 ! value to stop mode reading" >> ../../rep$rep/input-dihe.txt
+ls -Art *.vec > list
+sed -i 's/.vec//g' list
+while read line; do
+	sed -i '/999/i '$line'' ../../rep$rep/input-dihe.txt
+done < list
+rm list
+
+cd $pwd
+
+exit

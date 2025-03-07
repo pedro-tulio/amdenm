@@ -1,0 +1,482 @@
+#!/bin/bash 
+#CoM=========================================================================
+#CoM...DIHE-comp: Perturbing vectors of dihedral angles.
+#CoM-------------------------------------------------------------------------
+#CoM
+#CoM   Main goal: 
+#CoM   ++++++++++
+#CoM
+#CoM  *To build an Elastic Network Model (ENM) of selected C-alpha dihedrals
+#CoM   and to compute vectors that perturb dihedral angles of a set of systems.
+#CoM
+#CoM   Properties:
+#CoM   +++++++++++
+#CoM
+#CoM  *Output vectors are built with input ones. 
+#CoM   They are written in current directory.
+#CoM
+#CoM  *Generates CHARMM binary modefile.
+#CoM
+#CoM   Attention : 
+#CoM   +++++++++++
+#CoM
+#CoM  *Uses temporary files. 
+#CoM   So, DO NOT run this script twice at a time in same directory !
+#CoM
+#CoM------------------------------------------------------------------------
+#CoM   This software is released under the CeCILL FREE SOFTWARE LICENSE.
+#CoM   In short: this license is compatible with the GNU GPL.
+#CoM   Specifically: it grants users the right to modify and redistribute 
+#CoM   this software within the framework of an open source distribution 
+#CoM   model. The complete text of the license can be found there:
+#CoM   http://www.cecill.info/licences/Licence_CeCILL_V2-en.html
+#CoM------------------------------------------------------------------------
+#CoM
+#CoM   This code was developed by Pedro Túlio de Resende Lara 
+#CoM   Please mail bug reports to pedro.lara@ufabc.edu.br
+#CoM
+# v1.00: PTRL-may-2017 Paris.
+version='v1.00, May 2017.'
+
+pgmprf='dihe-comp'
+pgmnam='+'$pgmprf'> '
+pgmwrn='%'$pgmprf'-Wn> '
+pgmerr='%'$pgmprf'-Er> '
+
+echo ' '
+echo $pgmnam 'Computes perturbing vectors of dihedral angles.'
+echo $pgmnam $version
+echo ' '
+
+# Arguments and options are read:
+# -------------------------------
+
+# Defaults:
+debug=NO
+ires=FIRST
+fres=LAST
+
+# File list to finish the run:
+lstfil=NONE
+if [ $# -gt 0 ] 
+then
+help=OFF
+nargrd=$#
+nargs=0
+while [ $nargs -lt $nargrd ]
+do
+# Reading the options:
+  cmd=`echo '+'$1 | tr '[A-Z]' '[a-z]' | sed 's/+//'`
+  case $cmd in 
+ '-h'|'-help') 
+   help=ON 
+   nargs=$(( $nargs + 1 ))
+  ;;
+  *)
+  if [ $# -ge 2 ] ; then
+  nargs=$(( $nargs + 2 ))
+  fcararg=`echo $2 | cut -c1`
+  if [ $fcararg = \- ] ; then
+  case $2 in
+  *[!\-,!\.,!0-9]*)
+  echo ' '
+  echo $pgmerr $cmd 'must be followed by a parameter (or by a number).'
+  lstfil=FOUND
+  nargs=$nargrd
+  help=ON
+  esac
+  fi
+  case $cmd in
+ '-f')   
+  nfil=$(( $# - 1 ))
+  nargs=$nargrd
+  lstfil=FOUND
+  ;;
+ '-ires')  ires=$2 ;;				
+ '-fres')  fres=$2 ;;		
+  *) 
+  echo ' '
+  echo $pgmerr $cmd 'is not an expected option.'
+  lstfil=FOUND
+  nargs=$nargrd
+  help=ON
+  ;;
+  esac
+# Next argument:
+  if [ $lstfil = NONE ] ; then shift ; fi
+  else
+  echo ' '
+  echo $pgmerr $cmd 'is the last argument ?'
+  nargs=$(( $nargs + 1 ))
+  help=ON
+  fi
+  ;;
+  esac
+# Next argument:
+  shift 
+done
+# No argument:
+else
+help=ON
+fi
+
+if [ $lstfil = NONE -a $help = OFF ] ; then
+echo ' '
+echo $pgmerr '-f filename(s): required.'
+help=ON
+fi
+
+if [ $help = ON ] ; then
+pgmout=`echo $pgmprf | tr '[A-Z]' '[a-z]'`
+echo ' '
+echo ' Action: Computes perturbing vectors of dihedral angles.'
+echo ' Usage : ./'$pgmout' { arguments } { options } -f filename(s)'      
+echo ' '
+echo ' Last argument:'
+echo '-file    coordinate-filename(s) (crd format)                              (mandatory)'
+echo ' '
+echo ' Main arguments:'
+echo '-ires    first-residue-selected                                           (default:' $ires')'
+echo '-fres    last-residue-selected                                            (default:' $fres')'
+echo ' '
+exit
+fi
+
+# Check the command entries:
+# =======
+pb=NO
+
+iresopt=$( echo $ires | tr '[a-z]' '[A-Z]' )
+case $iresopt in
+FIRST) ires=1 ;;
+*[!0-9,!\-]*)
+  echo ' '
+  echo $pgmerr '-ires: integer number required (first residue selection).'
+  exit
+esac
+
+fresopt=$( echo $fres | tr '[a-z]' '[A-Z]' )
+case $fres in
+LAST) fres=1 ;;
+*[!0-9,!\-]*)
+  echo ' '
+  echo $pgmerr '-fres: integer number required (last residue selection).'
+  exit
+esac
+
+if [ $ires -ne 1 ] && [ $fres -ne 1 ] ; then
+   if [ $ires -ge $fres ] ; then
+   		echo ' '
+  		echo $pgmerr 'The number of the last residue must be greater than the first.'
+  		pb=YES
+   fi
+fi
+
+debup=`echo $debug | tr '[a-z]' '[A-Z]'`
+case $debup in
+Y|YES|O|OUI|T|TRUE) 
+  debug=YES ;;
+N|NO|NON|F|FALSE)
+  debug=NO ;;
+*)
+  echo ' ' 
+  echo $pgmwrn '-debug: boolean required (YES or NO).' ;;
+esac
+
+if [ $pb = YES ] ; then exit ; fi
+
+
+# Loop on input files(s):
+# =======================
+
+# Check: only files among arguments left ? 
+if [ `ls $* 2>&1 | grep -c 'ls:'` -eq 0 ] ; then
+   nargs=$#
+else
+echo ' '
+echo $pgmerr 'Last arguments are ALL expected to be valid filename(s).'
+   exit
+fi
+echo ' '
+echo $pgmnam $nfil 'filename(s) to be considered.'
+
+nargrd=$nargs
+nargs=0
+nhes=0
+nelmt=1
+while [ $nargs -lt $nargrd ]
+do
+
+echo $pgmnam 'File: "'$1'"'
+cp $1 tmp.crd
+
+if [ $nelmt -gt 0 ] ; then
+nhes=$(( $nhes + 1 ))
+
+# Identifies the first and last residues
+fst=$(grep ' CA ' tmp.crd | head -n 1 | awk '{print $9}')
+lst=$(grep ' CA ' tmp.crd | tail -n 1 | awk '{print $9}')
+
+if [ $ires -eq 1 ] && [ $fres -eq 1 ] ; then
+	ires=$fst
+	fres=$lst
+fi
+
+natmin=4
+nat=$(( $fres - $ires + 1 ))
+echo $pgmnam $nat 'atoms taken into account.'
+if [ $nat -lt $natmin ] ; then
+echo $pgmwrn 'Not enough atoms for calculation.'
+   nelmt=0
+fi
+
+# Extract C-alpha atoms from .crd file
+awk '{if ($4 == "CA") print $0;}' tmp.crd > tmp
+for m in $(seq $ires $fres)
+	do
+		awk '{if ($9 == '$m') print $0;}' tmp >> tmp1
+	done
+
+echo $pgmnam 'C-alpha atoms extracted from file '$1'.'
+
+vecfil=`basename $1`
+pref=`echo $vecfil | awk -F'.' '{ print $1 }'`
+suffx='_'$ires'_'$fres'_dihe'
+if [ ${#pref} -gt 0 ] ; then
+   nomvec=${pref}${suffx}
+fi
+
+# Calculate the vectors between C-alpha atoms
+m=1
+i=$ires
+while [ $i -le $fres ]; do
+# Get CA1 coordinates (A)
+xa=$(cat tmp1 | awk '{if ($9 == '$i') print $5}')
+ya=$(cat tmp1 | awk '{if ($9 == '$i') print $6}')
+za=$(cat tmp1 | awk '{if ($9 == '$i') print $7}')
+# Get CA2 coordinates (B)
+xb=$(cat tmp1 | awk '{if ($9 == '$(( $i + 1 ))') print $5}')
+yb=$(cat tmp1 | awk '{if ($9 == '$(( $i + 1 ))') print $6}')
+zb=$(cat tmp1 | awk '{if ($9 == '$(( $i + 1 ))') print $7}')
+# Calculate the AB vector
+x=$(echo $xa $xb | awk '{printf "%f", ($1 - $2)}')
+y=$(echo $ya $yb | awk '{printf "%f", ($1 - $2)}')
+z=$(echo $za $zb | awk '{printf "%f", ($1 - $2)}')
+
+v=$(echo $x $y $z)
+echo v$m = $v >> tmp2
+
+i=$(( $i + 1 ))
+m=$(( $m + 1 ))
+
+done
+echo $pgmnam 'C-alpha vectors calculated.'
+
+# Calculate the Q vectors to rotate the dihedrals
+m=1
+end=$(( $fres - $ires - 1 ))
+o=$(( $ires - 1 ))
+while [ $m -lt $end ] ; do
+# Get V1 components
+xa=$(sed ''$m'q;d' tmp2 | awk '{print $3}')
+ya=$(sed ''$m'q;d' tmp2 | awk '{print $4}')
+za=$(sed ''$m'q;d' tmp2 | awk '{print $5}')
+
+m=$(( $m + 1 ))
+
+# Get V2 components
+xb=$(sed ''$m'q;d' tmp2 | awk '{print $3}')
+yb=$(sed ''$m'q;d' tmp2 | awk '{print $4}')
+zb=$(sed ''$m'q;d' tmp2 | awk '{print $5}')
+
+m=$(( $m + 1 ))
+
+# Get V3 components
+xc=$(sed ''$m'q;d' tmp2 | awk '{print $3}')
+yc=$(sed ''$m'q;d' tmp2 | awk '{print $4}')
+zc=$(sed ''$m'q;d' tmp2 | awk '{print $5}')
+
+m=$(( $m + 1 )) 
+
+# Calculate Q1 = V2 x V1
+i=$(echo $xb $yb $zb $xa $ya $za | awk '{printf "%f", ($5 * $3) - ($2 * $6)}')
+j=$(echo $xb $yb $zb $xa $ya $za | awk '{printf "%f", ($1 * $6) - ($3 * $4)}')
+k=$(echo $xb $yb $zb $xa $ya $za | awk '{printf "%f", ($4 * $2) - ($1 * $5)}')
+
+q1=$(echo $i $j $k)
+
+o=$(( $o + 1 )) ; echo $o $q1 >> tmp3
+# Calculate Q2 = V3 x V2
+i=$(echo $xb $yb $zb $xc $yc $zc | awk '{printf "%f", ($5 * $3) - ($2 * $6)}')
+j=$(echo $xb $yb $zb $xc $yc $zc | awk '{printf "%f", ($1 * $6) - ($3 * $4)}')
+k=$(echo $xb $yb $zb $xc $yc $zc | awk '{printf "%f", ($4 * $2) - ($1 * $5)}')
+
+q2=$(echo $i $j $k)
+
+o=$(( $o + 3 )) ; echo $o $q2 >> tmp3
+
+m=$(( $m - 2 )) ; o=$(( $o - 3 ))
+
+done
+
+n=$(wc -l tmp3 | awk '{print $1}')
+dihe=$(( $n / 2 ))
+echo $pgmnam 'Perturbing vectors obtained for '$dihe' dihedral angles.'
+
+m=1
+while read line ; do
+t=$(sed ''$m'q;d' tmp3 | awk '{print $1}')
+awk '{if ($9 == '$t') print $0;}' tmp >> tmp4
+m=$(( $m + 1 ))
+done < tmp3
+
+pgmsum=`echo $nomvec | tr '[A-Z]' '[a-z]'`
+pgmsum=$pgmsum'.crd'
+date=$(date | awk '{print $2"_"$3"-"$4}')
+if [ -f $pgmsum ]
+then
+  echo $pgmwrn $pgmsum 'file already exists. A copy is saved.'
+  mv $pgmsum $pgmsum'_'$date''
+fi
+
+paste tmp4 tmp3 | awk '{printf ("%5s %4s %4s %4s  %14.10f  %14.10f  %14.10f %4s %4s \n", $1, $2, $3, $4, $12, $13, $14, $8, $9)}' > tmp5
+
+# Split modes from modefile
+digits=$(echo $dihe | wc -m); digits=$(( $digits - 1 ))
+split -l 2 tmp5 mode- -d -a $digits
+end=$(( $dihe - 1 ))
+o=1
+for m in $(seq -w 0 $end)
+	do
+	mv mode-$m mode-$o.univ
+	o=$(( $o + 1 ))
+done
+
+else
+echo $pgmwrn 'The modefile(s) for structure '$1' could not be produced.'
+fi
+
+#
+# CHARMM Files generation
+# =======================
+
+# Topology and Parameters file
+
+
+# System psf file
+
+
+# Coordinates file
+coor=$(echo $1 | sed 's/.crd/.coor/g')
+
+# Protein selection
+
+
+sed 's/ .\.\/inputs/ \.\.\/\.\.\/inputs/g' ../../inputs/$topfile > toppar.str
+
+# Export CHARMM script
+echo '* WRITE CHARMM NORMAL MODES FILE' > $nomvec.inp
+echo '*' >> $nomvec.inp
+echo '' >> $nomvec.inp
+echo 'bomlev -5' >> $nomvec.inp
+echo 'wrnlev -1' >> $nomvec.inp
+echo 'faster on' >> $nomvec.inp
+echo '' >> $nomvec.inp
+echo '! READ TOPOLOGY AND PARAMETER FILES' >> $nomvec.inp
+echo '! file to some write information' >> $nomvec.inp
+echo 'open write card unit 22 name /dev/null' >> $nomvec.inp
+echo 'outu 22' >> $nomvec.inp
+echo 'stream toppar.str' >> $nomvec.inp
+echo 'outu 6' >> $nomvec.inp
+echo '' >> $nomvec.inp
+echo '!* RV CUSTOM CCDB INPUT FORMAT; .COR + PREPEND SEGID RESN RESID' >> $nomvec.inp
+echo '!* use * as char 1 for title records in input file' >> $nomvec.inp
+echo '!*' >> $nomvec.inp
+echo '' >> $nomvec.inp
+echo '!' >> $nomvec.inp
+echo '!' >> $nomvec.inp
+echo '!1---1 2--2 3--3 4--4 5------------5  6------------6  7------------7 8--8 9--9' >> $nomvec.inp
+echo '!|---| |--| |--| |--| |------------|  |------------|  |------------| |--| |--|' >> $nomvec.inp
+echo '!    5    1 ALA  CA    +0.3533000000   -0.2944000000   +0.1167000000 PROA    1' >> $nomvec.inp
+echo ' ' >> $nomvec.inp
+echo 'read univ card' >> $nomvec.inp
+echo '* univ custom format parameters' >> $nomvec.inp
+echo '*' >> $nomvec.inp
+echo 'unknown' >> $nomvec.inp
+echo 'titl  1  1 *' >> $nomvec.inp
+echo 'iseq  1  5	! 1' >> $nomvec.inp
+echo 'ires  7  4	! 2' >> $nomvec.inp
+echo 'resn 13  4	! 3' >> $nomvec.inp
+echo 'type 18  4	! 4' >> $nomvec.inp
+echo 'x    23 14	! 5' >> $nomvec.inp
+echo 'y    39 14	! 6' >> $nomvec.inp
+echo 'z    55 14	! 7' >> $nomvec.inp
+echo 'segi 70  4	! 8' >> $nomvec.inp
+echo 'resi 75  4	! 9' >> $nomvec.inp
+echo 'end' >> $nomvec.inp
+echo '' >> $nomvec.inp
+echo 'open read card unit 25 name ../../inputs/'$psffile'' >> $nomvec.inp
+echo 'read  psf card unit 25' >> $nomvec.inp
+echo '' >> $nomvec.inp
+echo '! Define the group formed by the protein' >> $nomvec.inp
+echo ''$prtn'' >> $nomvec.inp
+echo '' >> $nomvec.inp
+echo 'open read file unit 25 name '$coor'' >> $nomvec.inp
+echo 'read coor file comp unit 25' >> $nomvec.inp
+echo '' >> $nomvec.inp
+echo 'set ntraj '$dihe'' >> $nomvec.inp
+echo 'set nu 0' >> $nomvec.inp
+echo 'label loop' >> $nomvec.inp
+echo 'incr nu by 1' >> $nomvec.inp
+echo '' >> $nomvec.inp
+echo 'scalar xcomp set 0' >> $nomvec.inp
+echo 'scalar ycomp set 0' >> $nomvec.inp
+echo 'scalar zcomp set 0' >> $nomvec.inp
+echo '' >> $nomvec.inp
+echo 'open read card unit 15 name mode-@nu.univ' >> $nomvec.inp
+echo 'coor read comp univ unit 15' >> $nomvec.inp
+echo '' >> $nomvec.inp
+echo '! mass weight a given mode' >> $nomvec.inp
+echo 'coor swap' >> $nomvec.inp
+echo 'stream ../../lib/mass-weight.str' >> $nomvec.inp
+echo '' >> $nomvec.inp
+echo '! normalize a given mode' >> $nomvec.inp
+echo 'coor swap' >> $nomvec.inp
+echo 'stream ../../lib/qnorm.str' >> $nomvec.inp
+echo '' >> $nomvec.inp
+echo 'open write file unit 17 name '$nomvec'-@nu.vec' >> $nomvec.inp
+echo 'coor write comp file unit 17 sele SLCT end' >> $nomvec.inp
+echo '' >> $nomvec.inp
+echo 'if @nu .lt. @ntraj goto loop' >> $nomvec.inp
+echo '' >> $nomvec.inp
+echo '' >> $nomvec.inp
+echo 'stop' >> $nomvec.inp
+
+run_charmm=`charmm -i $nomvec.inp -o $nomvec.out`
+echo $run_charmm
+norm=$(grep 'NORMAL TERMINATION BY NORMAL STOP' $nomvec.out | wc -l)
+if [ $norm -ne 1 ]; then
+	echo ' '
+   	echo $pgmerr 'CHARMM: some error occurred while writing dihedral vector files.'
+   	echo $pgmerr '        checkout the file '$nomvec'.out for details.'
+	exit
+fi
+
+echo $pgmnam 'CHARMM binary vectors generated.'
+
+# Next filename:
+shift
+nargs=$(( $nargs + 1 ))
+rm -f tmp*
+done
+echo ' '
+echo $pgmnam $nhes 'Modefile(s) obtained.'
+
+# Cleaning:
+if [ $debug = NO ] ; then
+   rm -f *.univ tmp* toppar.str
+fi
+
+echo ' '
+echo $pgmnam 'Normal end.'
+exit

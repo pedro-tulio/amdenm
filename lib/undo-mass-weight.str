@@ -1,0 +1,15 @@
+! Remove the mass-weight of a given vector
+! The vector is in ref array
+! Result is in comp array
+
+scalar wmain = mass
+scalar wmain sqrt sele PRTN end
+scalar wmain reci sele PRTN end
+
+scalar xref prod wmain sele PRTN end
+scalar yref prod wmain sele PRTN end
+scalar zref prod wmain sele PRTN end
+
+scalar xcomp copy xref sele PRTN end
+scalar ycomp copy yref sele PRTN end
+scalar zcomp copy zref sele PRTN end

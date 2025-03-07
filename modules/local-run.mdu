@@ -1,0 +1,143 @@
+#!/bin/bash 
+#
+
+pwd=$(pwd)
+
+cd ../local
+
+# Setup the number of modes to compute
+
+
+# Replica number
+rep=
+
+folder=rep"$rep"_"$(date | awk '{print $2"-"$3"_"$4}' | tr '[A-Z]' '[a-z]')"
+mkdir $folder
+
+cd $folder
+
+#
+# CHARMM Files generation
+# =======================
+
+# Topology and Parameters file
+
+
+# System psf file
+
+
+# Coordinates file
+coor=temporary.crd
+
+# Protein selection
+
+
+# Segment selection
+
+
+sed 's/ .\.\/inputs/ \.\.\/\.\.\/inputs/g' ../../inputs/$topfile > toppar.str
+
+# Export CHARMM script
+
+echo '* LOCAL NORMAL MODES CALCULATION WITH REDUCED BASIS' >> nma-local.inp
+echo '*' >> nma-local.inp
+echo '' >> nma-local.inp
+echo 'DIMENS CHSIZE 3000000 MAXRES 3000000' >> nma-local.inp
+echo '' >> nma-local.inp
+echo 'bomlev -5' >> nma-local.inp
+echo 'wrnlev -1' >> nma-local.inp
+echo 'faster on' >> nma-local.inp
+echo '' >> nma-local.inp
+echo '! ==================================== !' >> nma-local.inp
+echo '! SETUP THE SYSTEM TO MDENM SIMULATION !' >> nma-local.inp
+echo '! ==================================== !' >> nma-local.inp
+echo '' >> nma-local.inp
+echo '! READ TOPOLOGY AND PARAMETER FILES' >> nma-local.inp
+echo '! file to some write information' >> nma-local.inp
+echo 'open write card unit 22 name waste.txt' >> nma-local.inp
+echo 'outu 22' >> nma-local.inp
+echo 'stream '$topfile'' >> nma-local.inp
+echo 'outu 6' >> nma-local.inp
+echo '' >> nma-local.inp
+echo '! Read system`s psf file' >> nma-local.inp
+echo 'open read card unit 25 name ../../inputs/'$psffile'' >> nma-local.inp
+echo 'read psf card unit 25' >> nma-local.inp
+echo 'close unit 25' >> nma-local.inp
+echo '' >> nma-local.inp
+echo '! Define the group formed by the protein' >> nma-local.inp
+echo "$prtn" >> nma-local.inp
+echo '' >> nma-local.inp
+echo 'dele atom sele .not. PRTN end' >> nma-local.inp
+echo '' >> nma-local.inp
+echo '! Define the segment to compute local modes' >> nma-local.inp
+echo "$slct" >> nma-local.inp
+echo '' >> nma-local.inp
+echo '! Read system`s coordinates file' >> nma-local.inp
+echo 'open read card unit 16 name ../../rep'$rep'/'$coor'' >> nma-local.inp
+echo 'read coor card unit 16' >> nma-local.inp
+echo '' >> nma-local.inp
+echo 'cons fix sele .not. SLCT end' >> nma-local.inp
+echo 'cons harm sele SLCT end force 0.01 mass' >> nma-local.inp
+echo '' >> nma-local.inp
+echo '!Energy Model' >> nma-local.inp
+echo '!Force field definition' >> nma-local.inp
+echo 'nbond rdie eps 1.0 switch ctonnb 5.0 ctofnb 9.0 cutnb 10.0' >> nma-local.inp
+echo '' >> nma-local.inp
+echo 'skip CMAP ' >> nma-local.inp
+echo '' >> nma-local.inp
+echo '! Supplemental energy minimization' >> nma-local.inp
+echo 'mini abnr nstep 1000000 tolgrd 0.000001' >> nma-local.inp
+echo '' >> nma-local.inp
+echo '! Normal modes file oppening ' >> nma-local.inp
+echo 'open write file unit 41 name modes.mod' >> nma-local.inp
+echo '' >> nma-local.inp
+echo '! NMA calculation' >> nma-local.inp
+echo 'vibran nmodes '$vec'' >> nma-local.inp
+echo 'REDUce NFREquencies '$vec' FIX CMPAct BIG' >> nma-local.inp
+echo 'write norm file unit 41 mode 1 thru '$vec'' >> nma-local.inp
+echo 'end' >> nma-local.inp
+echo 'close unit 41' >> nma-local.inp
+echo '' >> nma-local.inp
+echo 'set modnu 0' >> nma-local.inp
+echo 'label writemodes' >> nma-local.inp
+echo 'incr modnu by 1' >> nma-local.inp
+echo '' >> nma-local.inp
+echo '! Normal modes file oppening ' >> nma-local.inp
+echo 'vibran nmod '$vec'' >> nma-local.inp
+echo 'open read file unit 40 name modes.mod' >> nma-local.inp
+echo 'read norm file mode @modnu unit 40' >> nma-local.inp
+echo 'fill comp mode 1 fact 1' >> nma-local.inp
+echo 'end' >> nma-local.inp
+echo '' >> nma-local.inp
+echo 'open write file unit 14 name local-@modnu.vec' >> nma-local.inp
+echo 'write coor comp file unit 14' >> nma-local.inp
+echo '' >> nma-local.inp
+echo 'if @modnu .lt. '$vec' goto writemodes' >> nma-local.inp
+echo '' >> nma-local.inp
+echo 'stop' >> nma-local.inp
+
+run_charmm=`charmm -i nma-local.inp -o nma-local.out`
+echo $run_charmm
+norm=$(grep 'NORMAL TERMINATION BY NORMAL STOP' nma-local.out | wc -l)
+if [ $norm -ne 1 ]; then
+	echo ' '
+ 	echo $pgmerr 'CHARMM: some error occurred while writing LOCAL vector files.'
+ 	echo $pgmerr '        checkout the nma-local.out for details.'
+	exit
+fi
+
+#
+# =======================
+
+echo "../local/$folder" > ../../rep$rep/input-local.txt
+echo "999 ! value to stop mode reading" >> ../../rep$rep/input-local.txt
+ls -Art *.vec > list
+sed -i 's/.vec//g' list
+while read line; do
+	sed -i '/999/i '$line'' ../../rep$rep/input-local.txt
+done < list
+rm list
+
+cd $pwd
+
+exit

@@ -1,0 +1,21 @@
+! SCALE AND MASS WEIGTH THE EXCITING VECTOR Q
+! V = sqrt[(2*Ek)/m]
+! Q vector coordinates are in the comp array
+
+! Working arrays: wmain
+
+! Calculate the scaling factor
+calc fscale = sqrt( 2 * @ekuser )
+
+scalar xcomp mult @fscale sele PRTN end
+scalar ycomp mult @fscale sele PRTN end
+scalar zcomp mult @fscale sele PRTN end
+
+! Divide Q by sqrt(m) to use it as velocities
+scalar wmain = mass
+scalar wmain sqrt sele PRTN end
+scalar wmain reci sele PRTN end
+
+scalar xcomp prod wmain sele PRTN end
+scalar ycomp prod wmain sele PRTN end
+scalar zcomp prod wmain sele PRTN end

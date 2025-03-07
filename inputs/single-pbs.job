@@ -1,0 +1,66 @@
+#!/bin/bash
+
+## -------------------------------------------------------------------------- ##
+## --------- #     YOU MAY WANT TO CHANGE THE PBS PARAMETERS      # --------- ##
+## -------------------------------------------------------------------------- ##
+
+#PBS -S /bin/bash
+#PBS -l select=1:ncpus=1:mpiprocs=1:mem=50gb
+#PBS -l walltime=24:00:00
+#PBS -q default
+#PBS -M mail.address@institution.edu
+#PBS -j oe
+#PBS -N outputname-xxx # DO NOT change this line
+
+## -------------------------------------------------------------------------- ##
+## -------------------------------------------------------------------------- ##
+
+echo ---------------------------------------------------------------------------
+echo -n 'Job is running on node '; cat $PBS_NODEFILE
+echo ---------------------------------------------------------------------------
+echo PBS: qsub is running on $PBS_O_HOST
+echo PBS: originating queue is $PBS_O_QUEUE
+echo PBS: executing queue is $PBS_QUEUE
+echo PBS: working directory is $PBS_O_WORKDIR
+echo PBS: execution mode is $PBS_ENVIRONMENT
+echo PBS: job identifier is $PBS_JOBID
+echo PBS: job name is $PBS_JOBNAME
+echo PBS: logfile name is $PBS_O_LOGNAME
+echo PBS: node file is $PBS_NODEFILE
+echo PBS: current home directory is $PBS_O_HOME
+echo PBS: PATH = $PBS_O_PATH
+echo ---------------------------------------------------------------------------
+
+cd $PBS_O_WORKDIR/repxxx
+
+# RUN MDeNM
+# Load the sequential charmm installation
+module purge
+module load charmm
+charmm -i ../src/mdenm-single.inp rep=xxx -o mdenm.out >>repxxx.log 2>&1
+
+# Concatenate the pdb files into a unique trajectory file
+gunzip initcoor.crd.gz
+module purge
+module load charmm
+charmm -i ../modules/pdb2dcd.mdu -o pdb2dcd.out >>repxxx.log 2>&1
+
+# RUN ANALYSIS
+gunzip {helix,sheet,mdenm}.out.gz
+
+# Secondary structure ratio
+helix=$(awk '/REFHELIX <-/ {print $4}' mdenm.out | tr -d '"')
+sheet=$(awk '/REFSHEET <-/ {print $4}' mdenm.out | tr -d '"')
+awk '{ratio = $1 / '$helix' * 100; print ratio}' helix.out > helix-ratio.out
+awk '{ratio = $1 / '$sheet' * 100; print ratio}' sheet.out > sheet-ratio.out
+
+# Run some structural analysis (radius of gyration, sasa and rmsd)
+module purge
+module load vmd
+vmd -dispdev text -e ../modules/rog_loop_dcd.mdu >>repxxx.log 2>&1
+vmd -dispdev text -e ../modules/sasa.mdu >>repxxx.log 2>&1
+vmd -dispdev text -e ../modules/rmsd.mdu >>repxxx.log 2>&1
+
+# Clean and exit
+gzip initcoor.crd *.out
+exit

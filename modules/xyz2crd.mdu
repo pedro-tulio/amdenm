@@ -1,0 +1,148 @@
+#!/bin/bash 
+#
+
+pwd=$(pwd)
+
+test=$(ls custom-vectors/*.crd 2>/dev/null | wc -l)
+if [ $test -ge 1 ] ; then exit; fi
+
+cd custom
+
+echo "#!/bin/bash" > conv.sh
+echo "#" >> conv.sh
+echo " " >> conv.sh
+echo "sed -i '/*/d' temporary.crd" >> conv.sh
+echo "sed -i '1d' temporary.crd" >> conv.sh
+echo "# Format the .xyz file to a CHARMM readable format" >> conv.sh
+echo "for vec in ../inputs/*.xyz; do" >> conv.sh
+echo "	b=\`basename \$vec .xyz\`" >> conv.sh
+echo "	awk '{print \$1,\$2,\$3,\$4}' \$vec | awk -F' ' 'NF==4 {print}' > custom-vector.xyz" >> conv.sh
+echo "	paste temporary.crd custom-vector.xyz | awk '{printf (\"%5s %4s %4s %3s  %14.10f  %14.10f  %14.10f %4s %4s \\\n\", \$1, \$2, \$3, \$4, \$12, \$13, \$14, \$8, \$9)}' > ../inputs/\$b.univ" >> conv.sh
+echo "done" >> conv.sh
+echo " " >> conv.sh
+echo "# Create an input file to organize the custom vector writing" >> conv.sh
+echo "ls -Art ../inputs/*.univ 2>/dev/null | sed 's/.univ//g' > ../inputs/input-xyz.txt" >> conv.sh
+echo "echo '999' >> ../inputs/input-xyz.txt" >> conv.sh
+
+#
+# CHARMM Files generation
+# =======================
+
+# Topology and Parameters file
+
+
+# System psf file
+
+
+# System restart file
+
+
+# Export CHARMM script
+
+echo '* CONVERT XYZ VECTORS INTO CRD' > custom-vec.inp
+echo '*' >> custom-vec.inp
+echo ' ' >> custom-vec.inp
+echo 'bomlev -5' >> custom-vec.inp
+echo 'wrnlev -1' >> custom-vec.inp
+echo 'faster on' >> custom-vec.inp
+echo ' ' >> custom-vec.inp
+echo '! protein topology and parameter' >> custom-vec.inp
+echo 'stream ../inputs/'$topfile'' >> custom-vec.inp
+echo ' ' >> custom-vec.inp
+echo '!* RV CUSTOM CCDB INPUT FORMAT; .COR + PREPEND SEGID RESN RESID' >> custom-vec.inp
+echo '!* use * as char 1 for title records in input file' >> custom-vec.inp
+echo '!*' >> custom-vec.inp
+echo ' ' >> custom-vec.inp
+echo '!' >> custom-vec.inp
+echo '!1---1 2--2 3--3 4-4  5------------5  6------------6  7------------7 8--8 9--9' >> custom-vec.inp
+echo '!|---| |--| |--| |-|  |------------|  |------------|  |------------| |--| |--|' >> custom-vec.inp
+echo '!    5    1 ALA  CA    +0.3533000000   -0.2944000000   +0.1167000000 PROA    1' >> custom-vec.inp
+echo ' ' >> custom-vec.inp
+echo 'read univ card' >> custom-vec.inp
+echo '* univ custom format parameters' >> custom-vec.inp
+echo '*' >> custom-vec.inp
+echo 'unknown' >> custom-vec.inp
+echo 'titl  1  1 *' >> custom-vec.inp
+echo 'iseq  1  5	! 1' >> custom-vec.inp
+echo 'ires  7  4	! 2' >> custom-vec.inp
+echo 'resn 12  4	! 3' >> custom-vec.inp
+echo 'type 17  4	! 4' >> custom-vec.inp
+echo 'x    22 14	! 5' >> custom-vec.inp
+echo 'y    38 14	! 6' >> custom-vec.inp
+echo 'z    54 14	! 7' >> custom-vec.inp
+echo 'segi 67  4	! 8' >> custom-vec.inp
+echo 'resi 74  4	! 9' >> custom-vec.inp
+echo 'end' >> custom-vec.inp
+echo ' ' >> custom-vec.inp
+echo 'open read card unit 25 name ../inputs/'$psffile'' >> custom-vec.inp
+echo 'read  psf card unit 25' >> custom-vec.inp
+echo ' ' >> custom-vec.inp
+echo '! Read the last frame of Equilibration MD and' >> custom-vec.inp
+echo 'open read card unit 12 name ../inputs/'$rstfile'' >> custom-vec.inp
+echo 'read coor dynr curr unit 12' >> custom-vec.inp
+echo ' ' >> custom-vec.inp
+echo 'open write card unit 15 name temporary.crd' >> custom-vec.inp
+echo 'write coor card unit 15' >> custom-vec.inp
+echo 'close unit 15' >> custom-vec.inp
+echo ' ' >> custom-vec.inp
+echo '! Convert the .xyz vectors' >> custom-vec.inp
+echo 'system "sh conv.sh"' >> custom-vec.inp
+echo ' ' >> custom-vec.inp
+echo 'scalar x set 0' >> custom-vec.inp
+echo 'scalar y set 0' >> custom-vec.inp
+echo 'scalar z set 0' >> custom-vec.inp
+echo ' ' >> custom-vec.inp
+echo '! Open the additional inputfile that includes the modes to convert' >> custom-vec.inp
+echo 'open read card unit 13 name ../inputs/input-xyz.txt' >> custom-vec.inp
+echo ' ' >> custom-vec.inp
+echo 'label xyzloop' >> custom-vec.inp
+echo ' ' >> custom-vec.inp
+echo 'get mode unit 13' >> custom-vec.inp
+echo ' ' >> custom-vec.inp
+echo 'if @mode .eq. 999 goto stopxyzconv' >> custom-vec.inp
+echo 'open read card unit 15 name ../inputs/@mode.univ' >> custom-vec.inp
+echo 'coor read univ unit 15' >> custom-vec.inp
+echo ' ' >> custom-vec.inp
+echo '! mass weight a given mode' >> custom-vec.inp
+echo 'stream ../lib/mass-weight.str' >> custom-vec.inp
+echo ' ' >> custom-vec.inp
+echo '! normalize a given mode' >> custom-vec.inp
+echo 'coor swap' >> custom-vec.inp
+echo 'stream ../lib/qnorm.str' >> custom-vec.inp
+echo ' ' >> custom-vec.inp
+echo '! Write the updated ENM mode' >> custom-vec.inp
+echo 'open write card unit 16 name @mode.crd' >> custom-vec.inp
+echo 'coor write comp card unit 16' >> custom-vec.inp
+echo ' ' >> custom-vec.inp
+echo 'goto xyzloop' >> custom-vec.inp
+echo 'label stopxyzconv' >> custom-vec.inp
+echo ' ' >> custom-vec.inp
+echo 'get mode unit 13' >> custom-vec.inp
+echo ' ' >> custom-vec.inp
+echo ' ' >> custom-vec.inp
+echo 'stop' >> custom-vec.inp
+
+run_charmm=`charmm -i custom-vec.inp -o custom-vec.out`
+echo $run_charmm
+norm=$(grep 'NORMAL TERMINATION BY NORMAL STOP' custom-vec.out | wc -l)
+if [ $norm -ne 1 ]; then
+echo ' '
+ 	echo 'CHARMM: some error occurred while writing CUSTOM vector files.'
+ 	echo '        checkout the file custom-vec.out for details.'
+exit
+fi
+
+# Cleaning:
+rm -f custom-vector.xyz *.univ temporary.crd conv.sh ../inputs/input-xyz.txt
+
+echo 'CHARMM binary vectors generated.'
+
+# Copy files to inputs folder
+cp *.crd ../inputs/ 2>/dev/null
+
+echo ' '
+echo 'Normal end.'
+
+cd $pwd
+
+exit

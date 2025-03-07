@@ -1,0 +1,42 @@
+#!/bin/bash 
+#
+
+pwd=$(pwd)
+
+cd ../enm
+
+# Setup the number of modes to compute
+
+
+# Replica number
+rep=
+
+folder=rep"$rep"_"$(date | awk '{print $2"-"$3"_"$4}' | tr '[A-Z]' '[a-z]')"
+mkdir $folder
+
+cd $folder
+
+enm ()	{
+# Do not forget of to change the -ires and -fres option if applicable
+../../src/enm-comp -ca y -charmm y -output modes -meth STANDARD -vectors $vec -source ../../src -f ../../rep$rep/temporary.pdb
+}
+
+enm
+
+echo "../enm/$folder" > ../../rep$rep/input-enm.txt
+echo "999 ! value to stop mode reading" >> ../../rep$rep/input-enm.txt
+
+sed s/enm-//g ../../inputs/input-enm.txt | sed \$d > list
+while read line; do
+	ls *-$line.vec | sed 's/.vec//g' >> list2
+done < list
+
+
+while read line; do
+	sed -i '/999/i '$line'' ../../rep$rep/input-enm.txt
+done < list2
+rm list*
+
+cd $pwd
+
+exit

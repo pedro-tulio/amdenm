@@ -1,0 +1,11 @@
+! MASS WEIGHT A GIVEN MODE AND VELOCITIES
+! The result is in main array
+
+! Working arrays: wmain
+
+scalar wmain = mass
+scalar wmain sqrt sele PRTN end
+
+scalar x prod wmain sele PRTN end
+scalar y prod wmain sele PRTN end
+scalar z prod wmain sele PRTN end

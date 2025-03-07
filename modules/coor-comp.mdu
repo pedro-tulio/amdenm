@@ -1,0 +1,76 @@
+! ====================================================== !
+! MONITOR THE MD COORDINATES PROJECTED ONTO THE VECTOR Q !
+! ====================================================== !
+
+! create the output files
+open write card unit 14 name helixp-@output-rep@rep-e@mdnu.tmp
+open write card unit 15 name sheetp-@output-rep@rep-e@mdnu.tmp
+open write card unit 17 name qp-@output-rep@rep-e@mdnu.tmp
+open write card unit 16 name rmsp-@output-rep@rep-e@mdnu.tmp
+
+! open coordinate trajectory file
+open read file unit 52 name coor-@mdnu.dcd
+
+! Store the current coordinates in the main array
+TRAJECTORY FIRSTU 52 NUNIT 1 BEGIN 0 STOP @nstep
+
+set i 0
+label readtraj
+incr i by 1
+traj read
+
+! MONITOR THE SECONDARY STRUCTURE CHANGE ALONG MD
+coor secs
+set helix ?nalpha
+write title unit 14
+* @helix
+
+set sheet ?nbeta
+write title unit 15
+* @sheet
+
+! Compare the current with the initial coordinates
+open read file unit 97 name initcoor.coor
+read coor comp file unit 97 sele .byres. PRTN end
+
+! Compute the difference (qcurr - qref)
+stream ../lib/main-minus-comp.str
+
+scalar x set 0 sele .not. .byres. PRTN end
+scalar y set 0 sele .not. .byres. PRTN end
+scalar z set 0 sele .not. .byres. PRTN end
+
+! Mass-weight the difference [ (qcurr - qref) * sqrt(m) ]
+stream ../lib/mass-weight.str
+
+! Read Q vector
+open read file unit 97 name cntrl-vector.vec
+read coor comp file unit 97
+
+! Project the coordinates onto Q
+stream ../lib/dot-prod.str
+
+write title unit 17
+* @dotp
+
+scalar wcomp = mass
+scalar wcomp stat sele .byres. PRTN end
+set qrms ?stot
+calc qrms = sqrt( (@dotp*@dotp) / @qrms )
+
+write title unit 16
+* @qrms
+
+
+if @i .lt. @nstep goto readtraj
+
+close unit 14
+close unit 15
+close unit 16
+close unit 17
+
+system "cat helixp-*.tmp >> helix.out"
+system "cat sheetp-*.tmp >> sheet.out"
+system "cat qp-*.tmp >> coor-proj.out"
+system "cat rmsp-*.tmp >> rms-proj.out"
+system "rm coor-*.dcd *.tmp"

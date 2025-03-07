@@ -1,0 +1,42 @@
+###############################################################
+# sasa.tcl                                                    #
+# DESCRIPTION:                                                #
+#    This script is quick and easy to provide procedure       #
+# for computing the Solvent Accessible Surface Area (SASA)    #
+# of Protein and allows Users to select regions of protein.   #
+#                                                             #   
+# EXAMPLE USAGE:                                              #
+#         source sasa.tcl                                     #
+#         Selection: chain A and resid 1                      #
+#                                                             #
+#   AUTHORS:                                                  #
+#	Sajad Falsafi (sajad.falsafi@yahoo.com)            	      #
+#       Zahra Karimi                                          # 
+#       3 Sep 2011                                            #
+###############################################################
+
+set psffile [glob ../inputs/*.psf]
+
+mol new $psffile
+mol addfile coor-prot.dcd first 0 last -1 step 1 waitfor all
+
+# selection
+set sel [atomselect top "resname VAL LEU ILE PHE TRP CYS"]
+set protein [atomselect top "protein"]
+set n [molinfo top get numframes]
+set output1 [open "SASA_tot.dat" w]
+set output2 [open "SASA_hp.dat" w]
+# sasa calculation loop
+for {set i 0} {$i < $n} {incr i} {
+	molinfo top set frame $i
+	set sasatot [measure sasa 1.4 $protein]
+	puts $output1 "$sasatot"
+	
+	set sasahp [measure sasa 1.4 $protein -restrict $sel]
+	puts $output2 "$sasahp"
+}
+
+close $output1
+close $output2
+
+exit

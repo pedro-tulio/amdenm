@@ -1,0 +1,18 @@
+! SCALAR PRODUCT BETWEEN X AND XCOMP
+! The result is in @dotp
+
+! Working arrays: sca1, sca2, sca3
+
+scalar sca1 copy x sele PRTN end
+scalar sca2 copy y sele PRTN end
+scalar sca3 copy z sele PRTN end
+
+scalar sca1 prod xcomp sele PRTN end
+scalar sca2 prod ycomp sele PRTN end
+scalar sca3 prod zcomp sele PRTN end
+
+scalar sca1 sum sca2
+scalar sca1 sum sca3
+
+scalar sca1 stat sele PRTN end
+set dotp ?stot

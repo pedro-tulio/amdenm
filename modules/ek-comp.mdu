@@ -1,0 +1,68 @@
+! ====================================================== !
+! MONITOR THE KINETIC ENERGY PROJECTED ONTO THE VECTOR Q !
+! ====================================================== !
+
+! create the output files
+open write card unit 15 name vp-@output-rep@rep-e@mdnu.tmp
+open write card unit 17 name ek-@output-rep@rep-e@mdnu.tmp
+
+! open velocity trajectory file
+open read file unit 52 name velo-@mdnu.dcd
+
+! Store the current velocities in the main array
+TRAJECTORY VELO FIRSTU 52 NUNIT 1 BEGIN 1 STOP @nstep
+
+set i 0
+label readtraj
+incr i by 1
+traj read
+
+scalar x set 0 sele SLVT end
+scalar y set 0 sele SLVT end
+scalar z set 0 sele SLVT end
+
+! Mass-weight the current velocties ( V*sqrt(m) )
+stream ../lib/mass-weight.str
+
+! To compare them with the NM taken into account
+open read file unit 97 name cntrl-vector.vec
+read coor comp file unit 97
+
+! Calculate the dot product between Vcurr and Q
+stream ../lib/dot-prod.str
+
+! Project the Velocity Vcurr onto Q
+stream ../lib/proj-vel.str
+
+! Store the projected velocities of last frame
+if @i .eq. @nstep then
+  scalar xref copy xcomp 
+  scalar yref copy ycomp
+  scalar zref copy zcomp
+endif
+
+! Write the scalar projection of velocity on each frame
+stream ../lib/wrt-velo.str
+write title unit 15
+* @velo
+
+! Calculate the kinetic energy from projected velocities
+stream ../lib/compute-ek.str
+write title unit 17
+* @ek 
+
+if @i .lt. @nstep goto readtraj
+
+close unit 15
+close unit 17
+
+! Remove the mass-weight of the last frame velocities
+stream ../lib/undo-mass-weight.str
+
+open write file unit 25 name velo-proj.velo
+write coor comp file unit 25 sele PRTN end
+close unit 25
+
+system "cat ek-*.tmp >> ek-proj.out"
+system "cat vp-*.tmp >> vp-proj.out"
+system "rm velo-*.dcd *.tmp"

@@ -1,0 +1,29 @@
+! NORMALIZE THE Q VECTOR
+! The result is in the comp array 
+
+! Working arrays: sca1, sca2 and sca3
+
+! read the vector in the comp array
+! and compute its norm
+
+scalar sca1 copy xcomp sele PRTN end
+scalar sca2 copy ycomp sele PRTN end
+scalar sca3 copy zcomp sele PRTN end
+
+scalar sca1 pow2r sele PRTN end
+scalar sca2 pow2r sele PRTN end
+scalar sca3 pow2r sele PRTN end
+
+scalar sca1 sum sca2
+scalar sca1 sum sca3
+
+scalar sca1 stat sele PRTN end
+set qnorm ?stot
+calc qnorm = sqrt(@qnorm)
+
+! normalize the vector by
+! dividing it by its norm
+
+scalar xcomp divi @qnorm sele PRTN end
+scalar ycomp divi @qnorm sele PRTN end
+scalar zcomp divi @qnorm sele PRTN end

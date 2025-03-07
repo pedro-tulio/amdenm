@@ -1,0 +1,19 @@
+! COMPUTE KINETIC ENERGY BY USING Vp
+! Vp is the projection of the current velocity onto Q
+!
+! Ek = 1/2 sum(Mi·Vp^2)
+
+! Vp is in the comp array
+! The result is in @ek
+
+scalar xcomp pow2r sele PRTN end
+scalar ycomp pow2r sele PRTN end
+scalar zcomp pow2r sele PRTN end
+
+scalar xcomp sum ycomp
+scalar xcomp sum zcomp
+
+scalar xcomp mult 0.5
+
+scalar xcomp stat sele PRTN end
+set ek ?stot

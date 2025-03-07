@@ -1,0 +1,9 @@
+! PROJECT THE CURRENT VELOCITIES ONTO Q VECTOR
+! Vp = [ (V·Q)/|Q| ] · Q
+!
+! Current velocities are in comp array
+! Projected velocities are in comp array
+
+scalar xcomp mult @dotp sele PRTN end
+scalar ycomp mult @dotp sele PRTN end
+scalar zcomp mult @dotp sele PRTN end

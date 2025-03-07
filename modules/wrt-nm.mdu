@@ -1,0 +1,79 @@
+* WRITE CRD COORDINATE FILES OF PFF NORMAL MODES 
+*
+
+DIMENS CHSIZE 3000000 MAXRES 3000000
+
+bomlev -5
+wrnlev -1
+
+! ============================ !
+! READ USER-DEFINED PARAMETERS !
+! ============================ !
+
+! PFF Normal Mode file
+
+
+! System psf file
+
+
+! Topology and Parameters file
+
+
+! ============================================== !
+! WRITE CRD COORDINATE FILES OF PFF NORMAL MODES !
+! ============================================== !
+
+! READ TOPOLOGY AND PARAMETER FILES
+! file to some write information
+open write card unit 22 name /dev/null
+outu 22
+stream ../inputs/@topfile
+outu 6
+
+! Read system`s psf file
+open read card unit 25 name ../inputs/@psffile
+read psf card unit 25
+close unit 25
+
+! Define the group formed by the atoms considered in PFF NMA calculation
+! Remove all atoms that are not considered in PFF NMA calculation
+dele atom sele .not. PRTN end
+
+! open the additional inputfile that includes the NM to write
+open read card unit 13 name ../inputs/input.txt
+
+prnlev 5
+
+! Read all modes, select the mode of interest
+! and generate the displacement along it
+
+label writemodes
+
+get modnu unit 13
+
+if @modnu .eq. 999 goto stopwritemodes 
+vibran nmod 406
+open read file unit 40 name ../inputs/@modfile
+read norm file mode @modnu unit 40
+fill comp mode 1 fact 1
+end 
+
+! When vibran fills comp array with the NM
+! it divides the vector by sqrt(m), so we
+! mass weight the mode
+scalar wmain = mass
+scalar wmain sqrt
+
+scalar xcomp prod wmain
+scalar ycomp prod wmain
+scalar zcomp prod wmain
+
+open write file unit 14 name ../inputs/pff-@modnu.vec
+write coor comp file unit 14
+
+goto writemodes
+label stopwritemodes
+
+close unit 13
+
+stop

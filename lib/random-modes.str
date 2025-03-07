@@ -1,0 +1,21 @@
+! OBTAIN RANDOM VALUES TO EXCITE THE MODES
+! each mode will be excited by different factors
+! according to the generated random values 
+! modes coordinates are in the comp array
+
+! Working arrays: sca5, sca6 and sca7
+
+! randfac = randomize factor 
+get randfac unit 98
+
+scalar xcomp mult @randfac sele PRTN end  
+scalar ycomp mult @randfac sele PRTN end  
+scalar zcomp mult @randfac sele PRTN end  
+
+! acumulate modes to
+! obtain a new Q vector  
+! Q = (rand1 * q1) + (rand2 * q2)... 
+scalar xcomp +sto 5 sele PRTN end
+scalar ycomp +sto 6 sele PRTN end
+scalar zcomp +sto 7 sele PRTN end
+

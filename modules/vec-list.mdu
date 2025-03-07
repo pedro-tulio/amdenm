@@ -1,0 +1,37 @@
+! =========================================== !
+! WRITE THE CONTROL VECTORS IN FORMATED FILES !
+! =========================================== !
+
+open read file unit 17 name initcoor.coor
+read coor file unit 17
+close unit 17
+
+open write card unit 17 name initcoor.crd
+write coor card unit 17
+close unit 17
+
+! open the additional inputfile
+open read card unit 46 name vec-list.txt
+
+rewind unit 46
+
+label loop
+get modnu unit 46
+
+if modnu .eq. 999 goto stopread
+open read file unit 17 name @modnu.vec
+read coor file unit 17
+close unit 17
+
+open write card unit 17 name @modnu.crd
+write coor card unit 17
+close unit 17
+
+goto loop
+
+label stopread
+
+close unit 46
+
+system "sed -i '/999/d' vec-list.txt"
+system "sh ../modules/gen-nmd.mdu"

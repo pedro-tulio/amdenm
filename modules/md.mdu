@@ -1,0 +1,151 @@
+* MOLECULAR DYNAMICS WITH EXCITED NORMAL MODES
+* 
+
+DIMENS CHSIZE 3000000 MAXRES 3000000
+
+bomlev -5
+wrnlev -1
+
+! ============================ !
+! READ USER-DEFINED PARAMETERS !
+! ============================ !
+
+! CHARMM Molecular Dynamics Restart file
+
+
+! NAMD Molecular Dynamics Coordinates file
+
+
+! NAMD Molecular Dynamics Velocities file
+
+
+! System psf file
+
+
+! System box and pbc file
+
+
+! Crystal image
+
+
+! Topology and Parameters file
+
+
+! ==================================== !
+! SETUP THE SYSTEM TO MDENM SIMULATION !
+! ==================================== !
+
+! READ TOPOLOGY AND PARAMETER FILES
+! file to some write information
+open write card unit 22 name /dev/null
+outu 22
+stream ../inputs/@topfile
+outu 6
+close unit 22
+
+! Read system`s psf file
+open read card unit 25 name ../inputs/@psffile
+read psf card unit 25
+close unit 25
+
+! Read the system information
+stream ../inputs/@pbcfile
+
+! Include waterbox and PBC
+open read unit 10 card name ../inputs/@watfile
+CRYSTAL DEFINE @XTLtype @A @B @C @alpha @beta @gamma
+CRYSTAL READ UNIT 10 CARD
+
+!Image centering by residue
+IMAGE BYRESID XCEN @xcen YCEN @ycen ZCEN @zcen sele resname TIP3 end
+IMAGE BYRESID XCEN @xcen YCEN @ycen ZCEN @zcen sele ( segid @posid .or. segid @negid ) end
+
+! Read the previuos equilibration coordinates
+
+if @rsttype .eq. 1 then
+  open read card unit 12 name ../inputs/@rstfile
+  read coor dynr curr unit 12
+  close unit 12
+endif
+
+! NAMD input
+if @rsttype .eq. 2 then
+  open read card unit 12 name ../inputs/@rstcoorfile
+  read coor pdb resid unit 12
+  close unit 12
+endif
+
+! ========================= !
+! CHARMM NBONDS DEFINITIONS !
+! ========================= !
+
+nbonds atom vdw vfswitch bycb -
+       ctonnb 10.0 ctofnb 12.0 cutnb 14.0 cutim 14.0 -
+       inbfrq -1 imgfrq -1 wmin 1.0 cdie eps 1.0 -
+       ewald pmew fftx @fftx ffty @ffty fftz @fftz kappa 0.34 spline order 6
+
+shake bonh param fast
+
+scalar mass stat
+calc Pmass = int ( ?stot / 50.0 )
+calc Tmass = int ( ?stot / 5.0 )
+
+! TO TO DECIDE IF ITS TIME TO RUN THE MD
+! the velocities are read in the main script
+open write card unit 27 name /dev/null
+label loop
+outu 27
+stream start-md.txt 
+if @startmd .eq. 0 goto loop
+outu 6
+
+! read the excitation velocities
+open read file unit 15 name mdenm.velo
+read coor comp file unit 15
+close unit 15
+
+! read current coordinates 
+open read file unit 15 name temporary.coor
+read coor file unit 15
+close unit 15
+
+open write card unit 22 name md-modes.rst
+open write file unit 23 name coor-@mdnu.dcd
+open write file unit 24 name velo-@mdnu.dcd
+DYNA CPT LEAP start timestep 0.002 nstep @nstep -
+     iunwri 22 iunrea -1 iuncrd 23 iunvel 24 -
+     nprint  1  nsavc  1  nsavv  1 ntrfrq @nstep -
+     isvfrq  0 iasvel  0 -
+     PCONSTANT pref   1.0  pmass @Pmass  pgamma   20.0 -
+     HOOVER    reft 303.15  tmass @Tmass  tbath   303.15  
+close unit 22
+close unit 23
+close unit 24
+
+! read current coordinates 
+open read file unit 15 name initcoor.coor
+read coor comp file unit 15
+close unit 15
+
+! Align the last frame to the initial conformation
+coor orie rms comp
+
+! Write the PDB of the last frame
+open write card unit 15 name coor-@mdnu.pdb
+write coor pdb  unit 15
+close unit 15
+
+! Stop the MD
+open write card unit 55 name start-md.txt
+write title unit 55
+*set startmd 0
+*
+close unit 55
+
+! Finish
+if @startmd .le. -2 then
+  stop
+endif
+
+! Return to loop and wait
+goto loop

@@ -1,0 +1,7 @@
+! GENERATE RANDOM VALUES TO EXCITE THE MODES
+! The result is in sca1 array
+
+! Working arrays: sca1
+
+random time uniform
+scalar sca1 random

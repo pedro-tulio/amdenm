@@ -1,0 +1,71 @@
+! =================== !
+! CORRECT Q DIRECTION !
+! =================== !
+
+! First we project the difference between the last and current average structures
+! onto the normal modes space to determine the delta value to accept or reject
+! the new vector; then this vector difference is normalized to be used as velocities
+
+! Open the reference structure
+open read file unit 15 name @prev
+read coor file comp unit 15 sele PRTN end
+
+! Open the current excitation`s average structure
+open read file unit 75 name average-rep@rep-e@mdnu.coor
+read coor file unit 75 sele PRTN end
+
+!coor orie rms mass noro sele PRTN end ! main is aligned to comp
+coor orie rms mass sele PRTN end ! main is aligned to comp
+coor diff sele PRTN end ! comp is subtracted to main
+
+scalar x set 0 sele .not. PRTN end
+scalar y set 0 sele .not. PRTN end
+scalar z set 0 sele .not. PRTN end
+
+! Mass-weight the current coordinates ( q*sqrt(m) )
+stream ../lib/mass-weight.str
+coor swap
+
+! Normalize the mass-weighted vector
+stream ../lib/qnorm.str
+
+! Store the difference in 5, 6 and 7 arrays
+scalar sca5 copy xcomp
+scalar sca6 copy ycomp
+scalar sca7 copy zcomp
+
+! Read the last Q vector
+open read file unit 97 name cntrl-vector.vec
+read coor file unit 97
+
+! Project the coordinates onto Q
+stream ../lib/dot-prod.str
+
+! Restore the difference from 5, 6 and 7 arrays
+scalar xcomp recall 5
+scalar ycomp recall 6
+scalar zcomp recall 7
+
+set prev average-rep@rep-e@mdnu.coor
+
+if @dotp .le. 0.5 then
+  ! Write the coordinates before the correction
+  open read card unit 12 name md-modes.rst
+  read coor dynr curr unit 12
+  close unit 12
+
+  open write card unit 15 name structure-@mdnu.crd
+  write coor card unit 15 sele .not. SLVT end
+  close unit 15
+  
+  if @globcor .eq. 1 then
+    open write file unit 20 name diff-vector.vec
+    write coor file comp unit 20
+    close unit 20
+
+    system "cp temporary.coor correc-ref.coor"
+    set qrmscorrec 0
+  endif
+else
+  return
+endif

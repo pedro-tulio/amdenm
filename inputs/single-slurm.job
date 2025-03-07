@@ -1,0 +1,60 @@
+#!/bin/bash
+
+## -------------------------------------------------------------------------------- ##
+## ------------ #    YOU MAY WANT TO CHANGE THE SLURM PARAMETERS     # ------------ ##
+## -------------------------------------------------------------------------------- ##
+
+#SBATCH --job-name=outputname-xxx	# Job name
+#SBATCH --output=%x.o%j				# Output files
+#SBATCH --ntasks=1	 				# Total MPI tasks
+#SBATCH --partition=cpu_med			# Queue name
+#SBATCH --time=04:00:00				# Walltime
+#SBATCH --exclusive					# Job allocation on exclusive nodes
+
+## -------------------------------------------------------------------------------- ##
+## -------------------------------------------------------------------------------- ##
+
+echo ---------------------------------------------------------------------------------
+echo Job is running on node $SLURMD_NODENAME
+echo ---------------------------------------------------------------------------------
+echo SLURM: qsub is running on $SLURM_SUBMIT_HOST
+echo SLURM: working directory is $WORKDIR/$SLURM_JOBID
+echo SLURM: job identifier is $SLURM_JOBID
+echo SLURM: job name is $SLURM_JOB_NAME
+echo SLURM: node file is $SLURM_NODELIST
+echo SLURM: current home directory is $SLURM_SUBMIT_DIR
+echo ---------------------------------------------------------------------------------
+
+cd ${SLURM_SUBMIT_DIR}/repxxx
+
+# RUN MDeNM
+# Load the sequential charmm installation
+module purge
+module load charmm
+srun charmm -i ../src/mdenm-single.inp rep=xxx -o mdenm.out >>repxxx.log 2>&1
+
+# Concatenate the pdb files into a unique trajectory file
+gunzip initcoor.crd.gz
+module purge
+module load charmm
+charmm -i ../modules/pdb2dcd.mdu -o pdb2dcd.out >>repxxx.log 2>&1
+
+# RUN ANALYSIS
+gunzip {helix,sheet,mdenm}.out.gz
+
+# Secondary structure ratio
+helix=$(awk '/REFHELIX <-/ {print $4}' mdenm.out | tr -d '"')
+sheet=$(awk '/REFSHEET <-/ {print $4}' mdenm.out | tr -d '"')
+awk '{ratio = $1 / '$helix' * 100; print ratio}' helix.out > helix-ratio.out
+awk '{ratio = $1 / '$sheet' * 100; print ratio}' sheet.out > sheet-ratio.out
+
+# Run some structural analysis (radius of gyration, sasa and rmsd)
+module purge
+module load vmd
+srun vmd -dispdev text -e ../modules/rog_loop_dcd.mdu >>repxxx.log 2>&1 
+srun vmd -dispdev text -e ../modules/sasa.mdu >>repxxx.log 2>&1 
+srun vmd -dispdev text -e ../modules/rmsd.mdu >>repxxx.log 2>&1 
+
+# Clean and exit
+gzip initcoor.crd *.out
+exit

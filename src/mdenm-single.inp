@@ -1,0 +1,1757 @@
+* MOLECULAR DYNAMICS WITH EXCITED NORMAL MODES
+*
+
+! The MDeNM (molecular dynamics with excited normal modes) method consists of multiple-replica
+! short MD simulations in which motions described by a given subset of low-frequency NMs are
+! kinetically excited. This is achieved by adding additional atomic velocities along several
+! randomly determined linear combinations of NM vectors, thus allowing an efficient coupling
+! between slow and fast motions. The relatively high-energy conformations generated with MDeNM
+! are further relaxed with standard MD simulations, enabling free energy landscapes to be determined.
+! MDeNM provides a larger extent of sampling in a few nanoseconds, outperforminglong standard MD
+! simulations. A high degree of correlation with motions inferred from experimental sources
+! (X-ray, EPR, and NMR) and with free energy estimations obtained by metadynamics was observed.
+! Finally, the large sets of conformations obtained with MDeNM can be used to better characterize
+! relevant dynamical populations, allowing for a better interpretation of experimental data such
+! as SAXS curves and NMR spectra.
+!
+! Reference:
+! Costa MGS, Batista PR, Bisch PM, Perahia D. Exploring Free Energy Landscapes of Large Conformational Changes:
+! Molecular Dynamics with Excited Normal Modes. J Chem Theory Comput. 2015 May 5;11(6):2755-2767.
+! DOI: http://dx.doi.org/10.1021/acs.jctc.5b00003
+!
+
+! How to run:
+! charmm -i mdenm.inp rep=<num> -o mdenm.out &
+
+DIMENS CHSIZE 3000000 MAXRES 3000000
+
+bomlev -5
+wrnlev -1
+
+! ============================ !
+! READ USER-DEFINED PARAMETERS !
+! ============================ !
+
+! CHARMM Molecular Dynamics Restart file
+
+
+! NAMD Molecular Dynamics Coordinates file
+
+
+! NAMD Molecular Dynamics Velocities file
+
+
+! System psf file
+
+
+! System box and pbc file
+
+
+! Crystal image
+
+
+! Topology and Parameters file
+
+
+! Choose the MDeNM application
+
+
+! Get the main excitation energy (kcal)
+
+
+! Get the simulation time (in picoseconds)
+
+
+! Get output file name pattern
+
+
+! Setup collective NM correction (0=NO; 1=YES)
+
+
+! Displacement along vector Q to evaluate the MDeNM path (Å)
+
+
+! Setup ENM recalculation (0=NO; 1=YES)
+
+
+! Frequency of ENM recalculation (# of excitations)
+
+
+! RMSD value for filtering (Å)
+
+
+! Define the running status (0=START; 1=RESTART; 2=APPEND)
+
+
+! ============== !
+! INITIALIZATION !
+! ============== !
+
+! Setup the input writing for ENM calculations
+set secinp 0
+if @type .eq. 1 then set secinp 1
+
+! Calculate a window to keep ecxitation energy between it during MD steps
+calc top = @ekuser1 + ( @ekuser1 * 0.25 )
+calc bottom = @ekuser1 - ( @ekuser1 * 0.25 )
+
+! Calculate the number of re-excitations
+set nstep 50
+calc nnstep = @nstep - 1
+calc time = ( @timeuser / ( @nstep * 0.002 ) )
+
+! ==================================== !
+! SETUP THE SYSTEM TO MDENM SIMULATION !
+! ==================================== !
+
+! READ TOPOLOGY AND PARAMETER FILES
+! file to some write information
+open write card unit 22 name /dev/null
+outu 22
+stream ../inputs/@topfile
+outu 6
+
+! Read system's psf file
+open read card unit 25 name ../inputs/@psffile
+read psf card unit 25
+close unit 25
+
+! Read the system information
+stream ../inputs/@pbcfile
+
+! Define the group formed by the atoms considered in PFF NMA calculation
+! Define the segment to perturb the dihedral angles
+! Define the selection to consider in ENM or LOCAL NM calculations
+! Define the region of interest to apply the filtering
+! Define the group formed by the membrane, solvent and ions (not considered in NMA calculation)
+define SLVT sele .not. PRTN end
+set Nslvt ?nsel
+
+! Store total atom number
+set Natom ?natom
+
+! Include waterbox and PBC
+open read unit 10 card name ../inputs/@watfile
+CRYSTAL DEFINE @XTLtype @A @B @C @alpha @beta @gamma
+CRYSTAL READ UNIT 10 CARD
+
+!Image centering by residue
+IMAGE BYRESID XCEN @xcen YCEN @ycen ZCEN @zcen sele resname TIP3 end
+IMAGE BYRESID XCEN @xcen YCEN @ycen ZCEN @zcen sele ( segid @posid .or. segid @negid ) end
+
+! Read the previuos equilibration coordinates
+
+if @rsttype .eq. 1 then
+  open read card unit 12 name ../inputs/@rstfile
+  read coor dynr curr unit 12
+  close unit 12
+endif
+
+! NAMD input
+if @rsttype .eq. 2 then
+  open read card unit 12 name ../inputs/@rstcoorfile
+  read coor pdb resid unit 12
+  close unit 12
+endif
+
+! write temporary coordinates
+open write file unit 15 name temporary.coor
+write coor file unit 15
+close unit 15
+
+! Write the inputs for ENM calculations
+if @secinp .eq. 1 then
+  open write card unit 15 name temporary.crd
+  write coor card unit 15 sele .not. SLVT end
+  close unit 15
+
+  open write card unit 15 name temporary.pdb
+  write coor pdb  unit 15 sele .not. SLVT end
+  close unit 15
+endif
+
+! Compute the initial secondary structure fraction
+coor secs
+set refhelix ?nalpha
+set refsheet ?nbeta
+
+system "cp temporary.coor initcoor.coor"
+system "cp temporary.coor correc-ref.coor"
+
+! Read the previuos equilibration velocities
+! CHARMM input
+if @rsttype .eq. 1 then
+  open read card unit 12 name ../inputs/@rstfile
+  read velo dynr curr unit 12
+  close unit 12
+endif
+
+! NAMD input
+if @rsttype .eq. 2 then
+  open read card unit 12 name ../inputs/@rstvelofile
+  read coor pdb resid unit 12
+  close unit 12
+  ! Scale to AKMA units
+  stream ../lib/namd-vel.str
+endif
+
+! write temporary velocities
+open write file unit 15 name temporary.velo
+write coor file unit 15
+close unit 15
+
+if @init .gt. 0 then
+  ! ================================================== !
+  ! Restart or append the simulation if it is the case !
+  ! ================================================== !
+
+  system "sh ../modules/continue-mdenm.mdu 2>/dev/null"
+  stream continue-mdenm.txt
+
+  ! Read the last checkpoint
+  open read card unit 12 name @rstfile
+  read coor dynr velo unit 12
+  close unit 12
+
+  ! write temporary velocities
+  open write file unit 15 name temporary.velo
+  write coor file unit 15
+  close unit 15
+
+  ! Read the last checkpoint
+  open read card unit 12 name @rstfile
+  read coor dynr curr unit 12
+  close unit 12
+
+  ! write temporary coordinates
+  open write file unit 15 name temporary.coor
+  write coor file unit 15
+  close unit 15
+
+  ! ========================= !
+  ! CHARMM NBONDS DEFINITIONS !
+  ! ========================= !
+
+  nbonds atom vdw vfswitch bycb -
+         ctonnb 10.0 ctofnb 12.0 cutnb 14.0 cutim 14.0 -
+         inbfrq -1 imgfrq -1 wmin 1.0 cdie eps 1.0 -
+         ewald pmew fftx @fftx ffty @ffty fftz @fftz kappa 0.34 spline order 6
+
+  shake bonh param fast
+
+  scalar mass stat
+  calc Pmass = int ( ?stot / 50.0 )
+  calc Tmass = int ( ?stot / 5.0 )
+
+  ! Skip to the right point if the simulation is being restarted or appended
+  if @init .eq. 2 then
+    ! rewrite the last Q vector in binary format
+	open read card unit 15 name cntrl-vector.crd
+	read coor card unit 15
+	close unit 15
+
+	open write file unit 15 name cntrl-vector.vec
+	write coor file unit 15
+	close unit 15
+  endif
+
+  open write card unit 21 name md.out
+  goto rstrtmd
+endif
+
+! ============================= BEGIN OF NORMAL MODES COMBINATION BLOCK ========================== !
+!                                                                                                  !
+! This part creates a Q vector representing the combination of modes listed at the input-modes.txt !
+! file. The NMs are randomized and accumulated at the Q vector, that is then normalized.           !
+
+! Number of trials to find a good combination
+set numtrials 1000000
+set icombi 0
+! Begin the loop for normal mode combination
+label combi
+incr icombi by 1
+
+! open the structure list file for RMSD Filtering
+open read card unit 61 name ../struct-list/struct-list.txt
+
+! DIHE perturbations
+if @type .eq. 0 goto skipfiltering
+
+! ENM modes
+if @type .eq. 1 then
+  if @icombi .eq. 1 then
+    ! ============================ !
+    ! COMPUTE THE ENM NORMAL MODES !
+    ! ============================ !
+
+    ! Compute the enm normal modes
+    system "sh enm-run.mdu"
+    set enmcalc 0
+  endif
+
+  ! ====================================== !
+  ! COMBINE AND NORMALIZE ENM NORMAL MODES !
+  ! ====================================== !
+
+  ! Combine and normalize ENM normal modes
+  stream ../modules/enm-vector.mdu
+
+  system "cp enm-vector.vec cntrl-vector.vec"
+
+  ! Set the vector to project
+  set vec2proj enm-vector.vec
+
+  goto filtering
+endif
+
+! PFF modes
+if @type .eq. 2 then
+  ! ====================================== !
+  ! COMBINE AND NORMALIZE PFF NORMAL MODES !
+  ! ====================================== !
+
+  ! Combine and normalize PFF normal modes
+  stream ../modules/pff-vector.mdu
+
+  system "cp pff-vector.vec cntrl-vector.vec"
+
+  ! Set the vector to project
+  set vec2proj pff-vector.vec
+
+  goto filtering
+endif
+
+! PFF+LOCAL modes
+if @type .eq. 3 then
+  ! ====================================== !
+  ! COMBINE AND NORMALIZE PFF NORMAL MODES !
+  ! ====================================== !
+
+  ! Combine and normalize PFF normal modes
+  stream ../modules/pff-vector.mdu
+
+  if @icombi .eq. 1 then
+    ! ============================== !
+    ! COMPUTE THE LOCAL NORMAL MODES !
+    ! ============================== !
+
+    ! Compute the local normal modes
+    system "sh local-run.mdu"
+    set localcalc 0
+  endif
+
+  ! ======================================== !
+  ! COMBINE AND NORMALIZE LOCAL NORMAL MODES !
+  ! ======================================== !
+
+  ! Combine and normalize LOCAL normal modes
+  stream ../modules/local-vector.mdu
+
+  ! ============================================ !
+  ! CREATE AN UNIQUE COLLECTIVE PFF+LOCAL VECTOR !
+  ! ============================================ !
+
+  ! Read the PFF vector
+  open read file unit 17 name pff-vector.vec
+  read coor file unit 17
+
+  ! Read the LOCAL vector
+  open read file unit 17 name local-vector.vec
+  read coor file comp unit 17
+
+  ! acumulate it to
+  ! obtain a new Q vector
+  scalar xcomp sum x
+  scalar ycomp sum y
+  scalar zcomp sum z
+
+  ! normalize the PFF+LOCAL vector
+  stream ../lib/qnorm.str
+
+  ! write the PFF+LOCAL vector
+  open write file unit 97 name pfflocal-vector.vec
+  write coor comp file unit 97
+
+  system "cp pfflocal-vector.vec cntrl-vector.vec"
+
+  ! Set the vector to project
+  set vec2proj pfflocal-vector.vec
+
+  goto filtering
+endif
+
+! PFF+DIHE
+if @type .eq. 4 then
+  ! ====================================== !
+  ! COMBINE AND NORMALIZE PFF NORMAL MODES !
+  ! ====================================== !
+
+  ! Combine and normalize PFF normal modes
+  stream ../modules/pff-vector.mdu
+
+  if @icombi .eq. 1 then
+    ! ====================================================== !
+    ! COMPUTE THE C-ALPHA DIHEDRAL ANGLES PERTURBING VECTORS !
+    ! ====================================================== !
+
+    ! Compute the dihedral angles perturbation
+    system "sh dihe-run.mdu"
+    set dihecalc 0
+  endif
+
+  ! ================================== !
+  ! COMBINE AND NORMALIZE DIHE VECTORS !
+  ! ================================== !
+
+  ! Combine and normalize DIHE vectors
+  stream ../modules/dihe-vector.mdu
+
+  ! =========================================== !
+  ! CREATE AN UNIQUE COLLECTIVE PFF+DIHE VECTOR !
+  ! =========================================== !
+
+  ! Read the PFF vector
+  open read file unit 17 name pff-vector.vec
+  read coor file unit 17
+
+  ! Read the DIHE vector
+  open read file unit 17 name dihe-vector.vec
+  read coor file comp unit 17
+
+  ! acumulate it to
+  ! obtain a new Q vector
+  scalar xcomp sum x
+  scalar ycomp sum y
+  scalar zcomp sum z
+
+  ! normalize the PFF+DIHE vector
+  stream ../lib/qnorm.str
+
+  ! write the PFF+DIHE vector
+  open write file unit 97 name pffdihe-vector.vec
+  write coor comp file unit 97
+
+  system "cp pffdihe-vector.vec cntrl-vector.vec"
+
+  ! Set the vector to project
+  set vec2proj pffdihe-vector.vec
+
+  goto filtering
+endif
+
+! PFF+PFF
+if @type .eq. 5 then
+  ! ======================================================= !
+  ! COMBINE AND NORMALIZE THE FIRST SET OF PFF NORMAL MODES !
+  ! ======================================================= !
+
+  ! Combine and normalize PFF normal modes
+  stream ../modules/pff-vector.mdu
+
+  system "mv pff-vector.vec pff-vector1.vec"
+
+  ! ======================================================== !
+  ! COMBINE AND NORMALIZE THE SECOND SET OF PFF NORMAL MODES !
+  ! ======================================================== !
+
+  ! Combine and normalize PFF normal modes
+  stream ../modules/pff-vector2.mdu
+  set pffcorrec 0
+
+  ! ========================================== !
+  ! CREATE AN UNIQUE COLLECTIVE PFF+PFF VECTOR !
+  ! ========================================== !
+
+  ! Read the first PFF vector
+  open read file unit 17 name pff-vector1.vec
+  read coor file unit 17
+
+  ! Read the second PFF vector
+  open read file unit 17 name pff-vector.vec
+  read coor file comp unit 17
+
+  ! acumulate it to
+  ! obtain a new Q vector
+  scalar xcomp sum x
+  scalar ycomp sum y
+  scalar zcomp sum z
+
+  ! normalize the PFF+PFF vector
+  stream ../lib/qnorm.str
+
+  ! write the PFF+PFF vector
+  open write file unit 97 name pff2-vector.vec
+  write coor comp file unit 97
+
+  system "cp pff2-vector.vec cntrl-vector.vec"
+
+  ! Set the vector to project
+  set vec2proj pff2-vector.vec
+
+  goto filtering
+endif
+
+! CUSTOM vectors
+if @type .eq. 6 then
+  ! ==================================== !
+  ! COMBINE AND NORMALIZE CUSTOM VECTORS !
+  ! ==================================== !
+
+  ! Combine and normalize CUSTOM vectors
+  stream ../modules/custom-vector.mdu
+
+  system "cp custom-vector.vec cntrl-vector.vec"
+
+  ! Set the vector to project
+  set vec2proj custom-vector.vec
+
+  goto filtering
+endif
+
+! PFF+CUSTOM modes
+if @type .eq. 7 then
+  ! ====================================== !
+  ! COMBINE AND NORMALIZE PFF NORMAL MODES !
+  ! ====================================== !
+
+  ! Combine and normalize PFF normal modes
+  stream ../modules/pff-vector.mdu
+
+  ! ==================================== !
+  ! COMBINE AND NORMALIZE CUSTOM VECTORS !
+  ! ==================================== !
+
+  ! Combine and normalize CUSTOM vectors
+  stream ../modules/custom-vector.mdu
+  set custcorrec 0
+
+  ! ============================================= !
+  ! CREATE AN UNIQUE COLLECTIVE PFF+CUSTOM VECTOR !
+  ! ============================================= !
+
+  ! Read the PFF vector
+  open read file unit 17 name pff-vector.vec
+  read coor file unit 17
+
+  ! Read the CUSTOM vector
+  open read file unit 17 name custom-vector.vec
+  read coor file comp unit 17
+
+  ! acumulate it to
+  ! obtain a new Q vector
+  scalar xcomp sum x
+  scalar ycomp sum y
+  scalar zcomp sum z
+
+  ! normalize the PFF+CUSTOM vector
+  stream ../lib/qnorm.str
+
+  ! write the PFF+CUSTOM vector
+  open write file unit 97 name pffcust-vector.vec
+  write coor comp file unit 97
+
+  system "cp pffcust-vector.vec cntrl-vector.vec"
+
+  ! Set the vector to project
+  set vec2proj pffcust-vector.vec
+
+  goto filtering
+endif
+
+! CUSTOM+LOCAL modes
+if @type .eq. 8 then
+  ! ==================================== !
+  ! COMBINE AND NORMALIZE CUSTOM VECTORS !
+  ! ==================================== !
+
+  ! Combine and normalize CUSTOM vectors
+  stream ../modules/custom-vector.mdu
+
+  if @icombi .eq. 1 then
+    ! ============================== !
+    ! COMPUTE THE LOCAL NORMAL MODES !
+    ! ============================== !
+
+    ! Compute the local normal modes
+    system "sh local-run.mdu"
+    set localcalc 0
+  endif
+
+  ! ======================================== !
+  ! COMBINE AND NORMALIZE LOCAL NORMAL MODES !
+  ! ======================================== !
+
+  ! Combine and normalize LOCAL normal modes
+  stream ../modules/local-vector.mdu
+
+  ! =============================================== !
+  ! CREATE AN UNIQUE COLLECTIVE CUSTOM+LOCAL VECTOR !
+  ! =============================================== !
+
+  ! Read the CUSTOM vector
+  open read file unit 17 name custom-vector.vec
+  read coor file unit 17
+
+  ! Read the LOCAL vector
+  open read file unit 17 name local-vector.vec
+  read coor file comp unit 17
+
+  ! acumulate it to
+  ! obtain a new Q vector
+  scalar xcomp sum x
+  scalar ycomp sum y
+  scalar zcomp sum z
+
+  ! normalize the CUSTOM+LOCAL vector
+  stream ../lib/qnorm.str
+
+  ! write the CUSTOM+LOCAL vector
+  open write file unit 97 name custlocal-vector.vec
+  write coor comp file unit 97
+
+  system "cp custlocal-vector.vec cntrl-vector.vec"
+
+  ! Set the vector to project
+  set vec2proj custlocal-vector.vec
+
+  goto filtering
+endif
+
+! CUSTOM+DIHE
+if @type .eq. 9 then
+  ! ==================================== !
+  ! COMBINE AND NORMALIZE CUSTOM VECTORS !
+  ! ==================================== !
+
+  ! Combine and normalize CUSTOM vectors
+  stream ../modules/custom-vector.mdu
+
+  if @icombi .eq. 1 then
+    ! ====================================================== !
+    ! COMPUTE THE C-ALPHA DIHEDRAL ANGLES PERTURBING VECTORS !
+    ! ====================================================== !
+
+    ! Compute the dihedral angles perturbation
+    system "sh dihe-run.mdu"
+    set dihecalc 0
+  endif
+
+  ! ================================== !
+  ! COMBINE AND NORMALIZE DIHE VECTORS !
+  ! ================================== !
+
+  ! Combine and normalize DIHE vectors
+  stream ../modules/dihe-vector.mdu
+
+  ! ============================================== !
+  ! CREATE AN UNIQUE COLLECTIVE CUSTOM+DIHE VECTOR !
+  ! ============================================== !
+
+  ! Read the CUSTOM vector
+  open read file unit 17 name custom-vector.vec
+  read coor file unit 17
+
+  ! Read the DIHE vector
+  open read file unit 17 name dihe-vector.vec
+  read coor file comp unit 17
+
+  ! acumulate it to
+  ! obtain a new Q vector
+  scalar xcomp sum x
+  scalar ycomp sum y
+  scalar zcomp sum z
+
+  ! normalize the CUSTOM+DIHE vector
+  stream ../lib/qnorm.str
+
+  ! write the CUSTOM+DIHE vector
+  open write file unit 97 name custdihe-vector.vec
+  write coor comp file unit 97
+
+  system "cp custdihe-vector.vec cntrl-vector.vec"
+
+  ! Set the vector to project
+  set vec2proj custdihe-vector.vec
+
+  goto filtering
+endif
+
+! ============================= END OF NORMAL MODES COMBINATION BLOCK ========================= !
+
+
+label filtering
+! ================================== BEGIN OF RMSD FILTERING BLOCK ============================ !
+!                                                                                               !
+! This part is for accepting or rejecting the Q vector. An RMSD threshold value is used.		!
+! The structure is displaced from 1 Å from the origin along the Q vector. If this displaced		!
+! structure has RMS Deviations with respect to the previous retained structures larger than the	!
+! threshold, this structure is retained and the Q vector accepted.								!
+! The following steps are used:																	!
+! 	- A temporary normal mode file containing the Q vector is first created.					!
+! 	- Thereafter the initial structure is displaced to a given RMSD along the Q vector.			!
+! 	- The RMS Deviations with respect to preceding displaced structures are calculated.			!
+! 	  If the rms deviations with respect to a preceding structure is lower than the threshold	!
+!	  value the combination of modes (defining the Q vector) is rejected. A new combination is	!
+!	  tested. If no value lower than the threshold is found thus the coordinates of the			!
+!	  displace structure is written into a file, the list of accepted structures is updated,	!
+!	  the combination of modes is accepted and the calculations are pursued.					!
+
+! Read the initial coordinates
+open read file unit 15 name temporary.coor
+read coor file unit 15
+close unit 15
+
+update inbf 0 imgfrq 0
+vibran nmod 1
+edit incl comp
+
+! This is a correction term based on the PROTEIN/SYSTEM atom number ratio
+! to achieve a displacement of 1 Å from the origin along the Q vector
+! rmscorrec = sqrt(Nprotein/Nsystem)
+calc rmsfac = sqrt( @Nprtn / @Natom )
+fill diff mode 1 rms @rmsfac
+end
+
+! Fit the displaced strucutre to the initial coordinates and calculate the RMSD
+coor orie rms comp sele PRTN end
+coor rms comp sele FILT end
+
+! Get how many combinations have already been accepted
+system "wc -l ../struct-list/struct-list.txt | cut -d" " -f1 > lines_all.txt"
+open read card unit 81 name lines_all.txt
+get nlines  unit 81
+close unit 81
+
+if @nlines .eq. 0 goto exfilter
+
+set ifilter 0
+label filter
+incr ifilter by 1
+
+get structpath unit 61
+
+! Read the previously accepted NM combinations
+open read file unit 63 name ../@structpath
+read coor file unit 63 sele PRTN end
+
+! Compare it with the current Q vector
+coor orie rms comp sele PRTN end
+coor rms comp sele FILT end
+
+! Put a limit on the number of trials
+if ?rms .lt. @rmsthreshold then
+  close unit 61
+  if @icombi .lt. @numtrials then
+    goto combi
+  else
+    open write card unit 64 name number-of-trials.txt
+    write title unit 64
+    * number of trials = @icombi
+    close unit 64
+    stop
+  endif
+endif
+
+if @ifilter .eq. @nlines goto exfilter
+
+goto filter
+
+label exfilter
+
+close unit 61
+
+! If Q vector is retained
+open write card unit 65 name tempstruct.txt
+write title unit 65
+*struct-list/struct-rep@rep.coor
+close unit 65
+
+system "cat tempstruct.txt | tr '[A-Z]' '[a-z]' >> ../struct-list/struct-list.txt"
+
+open write file unit 62 name ../struct-list/struct-rep@rep.coor
+write coor comp file unit 62 sele PRTN end
+
+! ================================= END OF RMSD FILTERING BLOCK ================================ !
+label skipfiltering
+
+
+
+! =========================== BEGIN OF NORMAL MODES EXCITATION BLOCK =========================== !
+!                                                                                                !
+!  Within this block we compute the additional velocities to displace along the Q vector. In     !
+!  addition, it is here that local set recalculations are computed if required.                  !
+
+set mdnu 0
+set check 0
+set wrt 0
+set qrmscorrec @globfreq
+set prev initcoor.coor
+set switch 0
+
+! DIHE perturbations
+if @type .eq. 0 then
+  label updtdihe
+  ! ====================================================== !
+  ! COMPUTE THE C-ALPHA DIHEDRAL ANGLES PERTURBING VECTORS !
+  ! ====================================================== !
+
+  ! Compute the dihedral angles perturbation
+  system "sh dihe-run.mdu"
+  set dihecalc 0
+
+  ! ================================== !
+  ! COMBINE AND NORMALIZE DIHE VECTORS !
+  ! ================================== !
+
+  ! Combine and normalize DIHE vectors
+  stream ../modules/dihe-vector.mdu
+
+  if @mdnu .eq. 0 then
+    system "cp dihe-vector.vec cntrl-vector.vec"
+    ! Set the vector to project
+    set vec2proj dihe-vector.vec
+  endif
+
+  ! ======================================================================= !
+  ! SCALE THE EXCITATION VECTORS ACCORDING TO USER-DEFINED ENERGY INCREMENT !
+  ! ======================================================================= !
+
+  ! read the Q vector
+  open read file unit 15 name cntrl-vector.vec
+  read coor comp file unit 15
+
+  ! scale the Q vector to transform it into velocities (VQ)
+  calc ekuser = @ekuser1
+  stream ../lib/scaling.str
+endif
+
+! ENM modes
+if @type .eq. 1 then
+  label updtenm
+  if @mdnu .eq. 0 goto scaleenm
+
+  ! =========================== !
+  ! UPDATE THE ENM NORMAL MODES !
+  ! =========================== !
+
+  ! Compute the enm normal modes
+  system "sh enm-run.mdu"
+  set enmcalc 0
+
+  ! ====================================== !
+  ! COMBINE AND NORMALIZE ENM NORMAL MODES !
+  ! ====================================== !
+
+  ! Combine and normalize ENM normal modes
+  stream ../modules/enm-vector.mdu
+
+  label scaleenm
+  ! ======================================================================= !
+  ! SCALE THE EXCITATION VECTORS ACCORDING TO USER-DEFINED ENERGY INCREMENT !
+  ! ======================================================================= !
+
+  ! read the Q vector
+  open read file unit 15 name cntrl-vector.vec
+  read coor comp file unit 15
+
+  ! scale the Q vector to transform it into velocities (VQ)
+  calc ekuser = @ekuser1
+  stream ../lib/scaling.str
+endif
+
+! PFF modes
+if @type .eq. 2 then
+  ! ======================================================================= !
+  ! SCALE THE EXCITATION VECTORS ACCORDING TO USER-DEFINED ENERGY INCREMENT !
+  ! ======================================================================= !
+
+  ! read the Q vector
+  open read file unit 15 name cntrl-vector.vec
+  read coor comp file unit 15
+
+  ! scale the Q vector to transform it into velocities (VQ)
+  calc ekuser = @ekuser1
+  stream ../lib/scaling.str
+endif
+
+! PFF+LOCAL modes
+if @type .eq. 3 then
+  label updtpfflocal
+  if @mdnu .eq. 0 goto scalepfflocal
+
+  ! ============================= !
+  ! UPDATE THE LOCAL NORMAL MODES !
+  ! ============================= !
+
+  ! Compute the enm normal modes
+  system "sh local-run.mdu"
+  set localcalc 0
+
+  ! ======================================== !
+  ! COMBINE AND NORMALIZE LOCAL NORMAL MODES !
+  ! ======================================== !
+
+  ! Combine and normalize ENM normal modes
+  stream ../modules/local-vector.mdu
+
+  label scalepfflocal
+  ! ======================================================================= !
+  ! SCALE THE EXCITATION VECTORS ACCORDING TO USER-DEFINED ENERGY INCREMENT !
+  ! ======================================================================= !
+
+  set v 0
+  label pfflocalvecloop
+  incr v by 1
+  if @v .eq. 1 then
+    if @mdnu .eq. 0 then
+      set vec pff-vector.vec
+      calc ekuser = @ekuser1
+    else
+      set vec cntrl-vector.vec
+      calc ekuser = @ekuser1
+    endif
+  else
+    set vec local-vector.vec
+    calc ekuser = @ekuser2
+  endif
+
+  ! read the Q vector
+  open read file unit 15 name @vec
+  read coor comp file unit 15
+
+  stream ../lib/scaling.str
+
+  ! write the Q vector
+  open write file unit 97 name vectormodes@v.vec
+  write coor comp file unit 97
+
+  if @v .lt. 2 goto pfflocalvecloop
+
+  ! ========================================= !
+  ! CREATE AN UNIQUE PFF+LOCAL EXCITED VECTOR !
+  ! ========================================= !
+
+  ! Read the scaled PFF vector
+  open read file unit 97 name vectormodes1.vec
+  read coor file unit 97
+
+  ! Read the scaled LOCAL vector
+  open read file unit 97 name vectormodes2.vec
+  read coor comp file unit 97
+
+  ! acumulate it to
+  ! obtain a new Q vector
+  scalar xcomp sum x
+  scalar ycomp sum y
+  scalar zcomp sum z
+endif
+
+! PFF+DIHE modes
+if @type .eq. 4 then
+  label updtpffdihe
+  if @mdnu .eq. 0 goto scalepffdihe
+
+  ! ============================ !
+  ! UPDATE THE DIHE NORMAL MODES !
+  ! ============================ !
+
+  ! Compute the DIHE normal modes
+  system "sh dihe-run.mdu"
+  set dihecalc 0
+
+  ! ======================================= !
+  ! COMBINE AND NORMALIZE DIHE NORMAL MODES !
+  ! ======================================= !
+
+  ! Combine and normalize DIHE normal modes
+  stream ../modules/dihe-vector.mdu
+
+  label scalepffdihe
+  ! ======================================================================= !
+  ! SCALE THE EXCITATION VECTORS ACCORDING TO USER-DEFINED ENERGY INCREMENT !
+  ! ======================================================================= !
+
+  set v 0
+  label pffdihevecloop
+  incr v by 1
+  if @v .eq. 1 then
+    if @mdnu .eq. 0 then
+      set vec pff-vector.vec
+      calc ekuser = @ekuser1
+    else
+      set vec cntrl-vector.vec
+      calc ekuser = @ekuser1
+    endif
+  else
+    set vec dihe-vector.vec
+    calc ekuser = @ekuser2
+  endif
+
+  ! read the Q vector
+  open read file unit 15 name @vec
+  read coor comp file unit 15
+
+  stream ../lib/scaling.str
+
+  ! write the Q vector
+  open write file unit 97 name vectormodes@v.vec
+  write coor comp file unit 97
+
+  if @v .lt. 2 goto pffdihevecloop
+
+  ! ======================================== !
+  ! CREATE AN UNIQUE PFF+DIHE EXCITED VECTOR !
+  ! ======================================== !
+
+  ! Read the scaled PFF vector
+  open read file unit 97 name vectormodes1.vec
+  read coor file unit 97
+
+  ! Read the scaled DIHE vector
+  open read file unit 97 name vectormodes2.vec
+  read coor comp file unit 97
+
+  ! acumulate it to
+  ! obtain a new Q vector
+  scalar xcomp sum x
+  scalar ycomp sum y
+  scalar zcomp sum z
+endif
+
+! PFF+PFF modes
+if @type .eq. 5 then
+  label updtpff2
+  if @mdnu .eq. 0 goto scalepff2
+
+  ! =================================== !
+  ! CORRECT THE SECOND SET OF PFF MODES !
+  ! =================================== !
+
+  ! Open the last coordinate trajectory file
+  open read unit 51 file name coor-@mdnu.dcd
+
+  ! Compute the excitation's average structure
+  coor dyna firstu 51 nunit 1 nskip 1 begin 0 stop @nnstep noprint -
+  sele .not. SLVT end
+
+  ! write the average structure
+  open write unit 75 file name local-rep@rep-e@mdnu.coor
+  write coor unit 75 file
+  * Average structure of excitation @mdnu
+  *
+
+  stream ../modules/nm-correc2.mdu
+  set pffcorrec 0
+
+  scalar xcomp set 0 sele .not. SLCT end
+  scalar ycomp set 0 sele .not. SLCT end
+  scalar zcomp set 0 sele .not. SLCT end
+
+  ! Write the corrected PFF mode
+  open write file unit 20 name pff-vector.vec
+  write coor file comp unit 20
+
+  label scalepff2
+  ! ======================================================================= !
+  ! SCALE THE EXCITATION VECTORS ACCORDING TO USER-DEFINED ENERGY INCREMENT !
+  ! ======================================================================= !
+
+  set v 0
+  label pff2vecloop
+  incr v by 1
+  if @v .eq. 1 then
+    if @mdnu .eq. 0 then
+      set vec pff-vector1.vec
+      calc ekuser = @ekuser1
+    else
+      set vec cntrl-vector.vec
+      calc ekuser = @ekuser1
+    endif
+  else
+    set vec pff-vector.vec
+    calc ekuser = @ekuser2
+  endif
+
+  ! read the Q vector
+  open read file unit 15 name @vec
+  read coor comp file unit 15
+
+  stream ../lib/scaling.str
+
+  ! write the Q vector
+  open write file unit 97 name vectormodes@v.vec
+  write coor comp file unit 97
+
+  if @v .lt. 2 goto pff2vecloop
+
+  ! ======================================= !
+  ! CREATE AN UNIQUE PFF+PFF EXCITED VECTOR !
+  ! ======================================= !
+
+  ! Read the first scaled PFF vector
+  open read file unit 97 name vectormodes1.vec
+  read coor file unit 97
+
+  ! Read the second scaled PFF vector
+  open read file unit 97 name vectormodes2.vec
+  read coor comp file unit 97
+
+  ! acumulate it to
+  ! obtain a new Q vector
+  scalar xcomp sum x
+  scalar ycomp sum y
+  scalar zcomp sum z
+endif
+
+! CUSTOM vectors
+if @type .eq. 6 then
+  ! ======================================================================= !
+  ! SCALE THE EXCITATION VECTORS ACCORDING TO USER-DEFINED ENERGY INCREMENT !
+  ! ======================================================================= !
+
+  ! read the Q vector
+  open read file unit 15 name cntrl-vector.vec
+  read coor comp file unit 15
+
+  ! scale the Q vector to transform it into velocities (VQ)
+  calc ekuser = @ekuser1
+  stream ../lib/scaling.str
+endif
+
+! PFF+CUSTOM modes
+if @type .eq. 7 then
+  label updtpffcust
+  if @mdnu .eq. 0 goto scalepffcust
+
+  ! ========================== !
+  ! CORRECT THE CUSTOM VECTORS !
+  ! ========================== !
+
+  ! Open the last coordinate trajectory file
+  open read unit 51 file name coor-@mdnu.dcd
+
+  ! Compute the excitation's average structure
+  coor dyna firstu 51 nunit 1 nskip 1 begin 0 stop @nnstep noprint -
+  sele .not. SLVT end
+
+  ! write the average structure
+  open write unit 75 file name local-rep@rep-e@mdnu.coor
+  write coor unit 75 file
+  * Average structure of excitation @mdnu
+  *
+
+  stream ../modules/nm-correc2.mdu
+  set custcorrec 0
+
+  scalar xcomp set 0 sele .not. SLCT end
+  scalar ycomp set 0 sele .not. SLCT end
+  scalar zcomp set 0 sele .not. SLCT end
+
+  ! Write the corrected CUSTOM mode
+  open write file unit 20 name custom-vector.vec
+  write coor file comp unit 20
+
+  label scalepffcust
+  ! ======================================================================= !
+  ! SCALE THE EXCITATION VECTORS ACCORDING TO USER-DEFINED ENERGY INCREMENT !
+  ! ======================================================================= !
+
+  set v 0
+  label pffcustvecloop
+  incr v by 1
+  if @v .eq. 1 then
+    if @mdnu .eq. 0 then
+      set vec pff-vector.vec
+      calc ekuser = @ekuser1
+    else
+      set vec cntrl-vector.vec
+      calc ekuser = @ekuser1
+    endif
+  else
+    set vec custom-vector.vec
+    calc ekuser = @ekuser2
+  endif
+
+  ! read the Q vector
+  open read file unit 15 name @vec
+  read coor comp file unit 15
+
+  stream ../lib/scaling.str
+
+  ! write the Q vector
+  open write file unit 97 name vectormodes@v.vec
+  write coor comp file unit 97
+
+  if @v .lt. 2 goto pffcustvecloop
+
+  ! ========================================== !
+  ! CREATE AN UNIQUE PFF+CUSTOM EXCITED VECTOR !
+  ! ========================================== !
+
+  ! Read the first scaled PFF vector
+  open read file unit 97 name vectormodes1.vec
+  read coor file unit 97
+
+  ! Read the second scaled CUSTOM vector
+  open read file unit 97 name vectormodes2.vec
+  read coor comp file unit 97
+
+  ! acumulate it to
+  ! obtain a new Q vector
+  scalar xcomp sum x
+  scalar ycomp sum y
+  scalar zcomp sum z
+endif
+
+! CUSTOM+LOCAL modes
+if @type .eq. 8 then
+  label updtcustlocal
+  if @mdnu .eq. 0 goto scalecustlocal
+
+  ! ============================= !
+  ! UPDATE THE LOCAL NORMAL MODES !
+  ! ============================= !
+
+  ! Compute the local normal modes
+  system "sh local-run.mdu"
+  set enmcalc 0
+
+  ! ======================================== !
+  ! COMBINE AND NORMALIZE LOCAL NORMAL MODES !
+  ! ======================================== !
+
+  ! Combine and normalize LOCAL normal modes
+  stream ../modules/local-vector.mdu
+
+  label scalecustlocal
+  ! ======================================================================= !
+  ! SCALE THE EXCITATION VECTORS ACCORDING TO USER-DEFINED ENERGY INCREMENT !
+  ! ======================================================================= !
+
+  set v 0
+  label custlocalvecloop
+  incr v by 1
+  if @v .eq. 1 then
+    if @mdnu .eq. 0 then
+      set vec custom-vector.vec
+      calc ekuser = @ekuser1
+    else
+      set vec cntrl-vector.vec
+      calc ekuser = @ekuser1
+    endif
+  else
+    set vec local-vector.vec
+    calc ekuser = @ekuser2
+  endif
+
+  ! read the Q vector
+  open read file unit 15 name @vec
+  read coor comp file unit 15
+
+  stream ../lib/scaling.str
+
+  ! write the Q vector
+  open write file unit 97 name vectormodes@v.vec
+  write coor comp file unit 97
+
+  if @v .lt. 2 goto custlocalvecloop
+
+  ! ============================================ !
+  ! CREATE AN UNIQUE CUSTOM+LOCAL EXCITED VECTOR !
+  ! ============================================ !
+
+  ! Read the scaled CUSTOM vector
+  open read file unit 97 name vectormodes1.vec
+  read coor file unit 97
+
+  ! Read the scaled LOCAL vector
+  open read file unit 97 name vectormodes2.vec
+  read coor comp file unit 97
+
+  ! acumulate it to
+  ! obtain a new Q vector
+  scalar xcomp sum x
+  scalar ycomp sum y
+  scalar zcomp sum z
+endif
+
+! CUSTOM+DIHE modes
+if @type .eq. 9 then
+  label updtcustdihe
+  if @mdnu .eq. 0 goto scalecustdihe
+
+  ! ============================ !
+  ! UPDATE THE DIHE NORMAL MODES !
+  ! ============================ !
+
+  ! Compute the DIHE normal modes
+  system "sh dihe-run.mdu"
+  set dihecalc 0
+
+  ! ======================================= !
+  ! COMBINE AND NORMALIZE DIHE NORMAL MODES !
+  ! ======================================= !
+
+  ! Combine and normalize DIHE normal modes
+  stream ../modules/dihe-vector.mdu
+
+  label scalecustdihe
+  ! ======================================================================= !
+  ! SCALE THE EXCITATION VECTORS ACCORDING TO USER-DEFINED ENERGY INCREMENT !
+  ! ======================================================================= !
+
+  set v 0
+  label custdihevecloop
+  incr v by 1
+  if @v .eq. 1 then
+    if @mdnu .eq. 0 then
+      set vec custom-vector.vec
+      calc ekuser = @ekuser1
+    else
+      set vec cntrl-vector.vec
+      calc ekuser = @ekuser1
+    endif
+  else
+    set vec dihe-vector.vec
+    calc ekuser = @ekuser2
+  endif
+
+  ! read the Q vector
+  open read file unit 15 name @vec
+  read coor comp file unit 15
+
+  stream ../lib/scaling.str
+
+  ! write the Q vector
+  open write file unit 97 name vectormodes@v.vec
+  write coor comp file unit 97
+
+  if @v .lt. 2 goto custdihevecloop
+
+  ! =========================================== !
+  ! CREATE AN UNIQUE CUSTOM+DIHE EXCITED VECTOR !
+  ! =========================================== !
+
+  ! Read the scaled CUSTOM vector
+  open read file unit 97 name vectormodes1.vec
+  read coor file unit 97
+
+  ! Read the scaled DIHE vector
+  open read file unit 97 name vectormodes2.vec
+  read coor comp file unit 97
+
+  ! acumulate it to
+  ! obtain a new Q vector
+  scalar xcomp sum x
+  scalar ycomp sum y
+  scalar zcomp sum z
+endif
+
+! write the excitation velocities
+open write file unit 97 name vectormodes.vec
+write coor comp file unit 97
+
+if @switch .eq. 1 then goto rescale
+
+
+! =========================== END OF NORMAL MODES EXCITATION BLOCK ============================= !
+
+
+
+! ============================= BEGIN OF MOLECULAR DYNAMICS BLOCK ============================== !
+!                                                                                                !
+! This part is to perform the multiple replica molecular dynamics using artificial velocities    !
+! exciting a given mode (or set of modes). Each replica is divided into many smaller simulations !
+! in order to avoid an excessive kinectic energy dissipation along the run.                      !
+
+label beginmd
+open write card unit 21 name md.out
+
+! ========================= !
+! CHARMM NBONDS DEFINITIONS !
+! ========================= !
+
+nbonds atom vdw vfswitch bycb -
+       ctonnb 10.0 ctofnb 12.0 cutnb 14.0 cutim 14.0 -
+       inbfrq -1 imgfrq -1 wmin 1.0 cdie eps 1.0 -
+       ewald pmew fftx @fftx ffty @ffty fftz @fftz kappa 0.34 spline order 6
+
+shake bonh param fast
+
+scalar mass stat
+calc Pmass = int ( ?stot / 50.0 )
+calc Tmass = int ( ?stot / 5.0 )
+
+! read current velocities
+open read file unit 15 name temporary.velo
+read coor file unit 15
+
+! read excitation velocities
+open read file unit 97 name vectormodes.vec
+read coor comp file unit 97
+
+! put the sum on comp to use as starting velocities
+scalar xcomp sum x
+scalar ycomp sum y
+scalar zcomp sum z
+
+! Checkpoint to restart the next excitation
+label rstrtmd
+
+! Increase some counters
+incr mdnu by 1
+incr check by 1
+incr wrt by 1
+if @type .eq. 0 then incr dihecalc by 1
+if @type .eq. 1 then incr enmcalc by 1
+if @type .eq. 3 then incr localcalc by 1
+if @type .eq. 4 then incr dihecalc by 1
+if @type .eq. 5 then incr pffcorrec by 1
+if @type .eq. 7 then incr custcorrec by 1
+if @type .eq. 8 then incr localcalc by 1
+if @type .eq. 9 then incr dihecalc by 1
+
+! read current coordinates
+open read file unit 15 name temporary.coor
+read coor file unit 15
+close unit 15
+
+outu 21
+open write card unit 22 name md-modes.rst
+open write file unit 23 name coor-@mdnu.dcd
+open write file unit 24 name velo-@mdnu.dcd
+DYNA CPT LEAP start timestep 0.002 nstep @nstep -
+     iunwri 22 iunrea -1 iuncrd 23 iunvel 24 -
+     nprint  1  nsavc  1  nsavv  1 ntrfrq @nstep -
+     isvfrq  0 iasvel  0 -
+     PCONSTANT pref   1.0  pmass @Pmass  pgamma   20.0 -
+     HOOVER    reft 303.15  tmass @Tmass  tbath   303.15
+close unit 22
+close unit 23
+close unit 24
+outu 6
+
+! read the initial coordinates
+open read file unit 15 name initcoor.coor
+read coor comp file unit 15
+close unit 15
+
+! Align the last frame to the initial conformation
+coor orie rms comp sele PRTN end
+
+! Write the PDB of the last frame
+open write card unit 15 name coor-@mdnu.pdb
+write coor pdb  unit 15 sele PRTN end
+close unit 15
+
+! Write some checkpoint files
+!if @wrt .eq. 100 then
+  envi out @mdnu
+  system "cp md-modes.rst md-$OUT.rst"
+  set wrt 0
+!endif
+
+! obtain the current coordinates to re-excite
+open read card unit 12 name md-modes.rst
+read coor dynr curr unit 12
+close unit 12
+
+open write file unit 15 name temporary.coor
+write coor file unit 15
+close unit 15
+
+! Write the inputs for DIHE, ENM or LOCAL calculations
+if @secinp .eq. 1 then
+  open write card unit 15 name temporary.crd
+  write coor card unit 15 sele .not. SLVT end
+  close unit 15
+
+  open write card unit 15 name temporary.pdb
+  write coor pdb  unit 15 sele .not. SLVT end
+  close unit 15
+endif
+
+! obtain the current velocities to re-excite
+open read card unit 12 name md-modes.rst
+read coor dynr velo unit 12
+close unit 12
+
+open write file unit 15 name temporary.velo
+write coor file unit 15
+close unit 15
+
+! ============================================================= !
+! EVALUATE IF IT IS TIME TO CORRECT GLOBAL EXCITATION DIRECTION !
+! ============================================================= !
+
+! Skip if no global NM set correction was required
+if globcor .ne. 1 goto drctnrecalc
+
+! Open the current coordinates
+open read file unit 15 name temporary.coor
+read coor file unit 15
+close unit 15
+
+! Compare with the initial coordinates
+open read file unit 97 name correc-ref.coor
+read coor comp file unit 97 sele .byres. PRTN end
+
+! Compute the difference (qcurr - qref)
+stream ../lib/main-minus-comp.str
+
+scalar x set 0 sele .not. .byres. PRTN end
+scalar y set 0 sele .not. .byres. PRTN end
+scalar z set 0 sele .not. .byres. PRTN end
+
+! Mass-weight the difference [ (qcurr - qref) * sqrt(m) ]
+stream ../lib/mass-weight.str
+
+! Read Q vector
+open read file unit 97 name cntrl-vector.vec
+read coor comp file unit 97
+
+! Project the coordinates onto Q
+stream ../lib/dot-prod.str
+
+scalar wcomp = mass
+scalar wcomp stat sele .byres. PRTN end
+set qrms ?stot
+calc rmscheck = sqrt( (@dotp*@dotp) / @qrms )
+
+! Evaluate the distance displaced along the excitation vector
+if @rmscheck .ge. @qrmscorrec then
+  ! Open the last coordinate trajectory file
+  open read unit 51 file name coor-@mdnu.dcd
+
+  ! Compute the excitation's average structure
+  coor dyna firstu 51 nunit 1 nskip 1 begin 0 stop @nnstep noprint -
+  sele .not. SLVT end
+
+  ! write the average structure
+  open write unit 75 file name average-rep@rep-e@mdnu.coor
+  write coor unit 75 file
+  * Average structure of excitation @mdnu
+  *
+
+  ! CORRECT Q DIRECTION TO PROCEED WITH THE SIMULATION
+  stream ../modules/nm-correc.mdu
+
+  ! Skip if the current excitation vector was kept
+  if @dotp .gt. 0.5 then
+    set check 0
+    calc qrmscorrec = @qrmscorrec + @globfreq
+    goto drctnrecalc
+  endif
+
+  ! Check the previous number of accepted vectors
+  system "cnt=$(ls cntrl-vector* | wc -l); echo set newvec $cnt > cnt.txt"
+  stream cnt.txt
+
+  ! Rename the vector to proceed the simulation
+  envi newvec @newvec
+  system "newvec=$(echo $NEWVEC); mv vectormodes.vec vectormodes.$newvec.vec; mv cntrl-vector.vec cntrl-vector.$newvec.vec; mv diff-vector.vec cntrl-vector.vec"
+
+  ! read the corrected Q vector
+  open read file unit 15 name cntrl-vector.vec
+  read coor comp file unit 15
+
+  ! scale the corrected Q vector to transform it into velocities (VQ)
+  stream ../lib/scaling.str
+
+  ! write the new excitation velocities
+  open write file unit 97 name vectormodes.vec
+  write coor comp file unit 97
+
+  set check 0
+  calc qrmscorrec = @qrmscorrec + @globfreq
+endif
+
+! ================================================================ !
+! EVALUATE IF IT IS TIME TO RECALCULATE LOCAL EXCITATION DIRECTION !
+! ================================================================ !
+
+label drctnrecalc
+
+! Skip if no local NM set recalculation was required
+if @diherecalc .ne. 1 then
+  if @enmrecalc .ne. 1 then
+    if @loccor .ne. 1 goto rescale
+  endif
+endif
+
+! Test if it is time to recalculate DIHE vectors
+if @type .eq. 0 then
+  if @diherecalc .eq. 1 then
+    set switch 1
+    if @dihecalc .eq. @dihefreq goto updtdihe
+  endif
+endif
+
+! Test if it is time to recalculate ENM modes
+if @type .eq. 1 then
+  if @enmrecalc .eq. 1 then
+    if @enmcalc .eq. @enmfreq then
+      set check 0
+      goto updtenm
+    endif
+  endif
+endif
+
+! Test if it is time to recalculate LOCAL vectors
+if @type .eq. 3 then
+  if @loccor .eq. 1 then
+    set switch 1
+  if @localcalc .eq. @localfreq goto updtpfflocal
+  endif
+endif
+
+! Test if it is time to recalculate DIHE vectors
+if @type .eq. 4 then
+  if @diherecalc .eq. 1 then
+    set switch 1
+  if @dihecalc .eq. @dihefreq goto updtpffdihe
+  endif
+endif
+
+! Test if it is time to correct the local set of PFF NM directions
+if @type .eq. 5 then
+  if @loccor .eq. 1 then
+    if @pffcorrec .eq. @localfreq goto updtpff2
+  endif
+endif
+
+! Test if it is time to correct the local set of CUSTOM directions
+if @type .eq. 7 then
+  if @loccor .eq. 1 then
+    if @custcorrec .eq. @localfreq goto updtpffcust
+  endif
+endif
+
+! Test if it is time to recalculate LOCAL vectors
+if @type .eq. 8 then
+  if @loccor .eq. 1 then
+    set switch 1
+   if @localcalc .eq. @localfreq goto updtcustlocal
+  endif
+endif
+
+! Test if it is time to recalculate DIHE vectors
+if @type .eq. 9 then
+  if @diherecalc .eq. 1 then
+    set switch 1
+    if @dihecalc .eq. @dihefreq goto updtcustdihe
+  endif
+endif
+
+! ======================================= !
+!   DO THE SECONDARY STRUCTURE ANALYSIS   !
+! Print a warning when structure has been !
+!      deviated 15% from reference        !
+! ======================================= !
+
+! read the current coordinates
+open read file unit 15 name temporary.coor
+read coor file unit 15
+close unit 15
+
+! Compute the actual secondary structure
+coor secs
+set helix ?nalpha
+set sheet ?nbeta
+
+! alpha helix content
+calc hlxwrn = ( 1 - ( @helix / @refhelix ) ) * 100
+if @hlxwrn .ge. 15 then
+envi rep @rep
+envi mdnu @mdnu
+envi hlxwrn @hlxwrn
+system "echo "rep$REP     $MDNU     $HLXWRN" >> ../warning-helix.wrn"
+endif
+
+! beta sheet content
+calc shtwrn = ( 1 - ( @sheet / @refsheet ) ) * 100
+if @shtwrn .ge. 15 then
+envi rep @rep
+envi mdnu @mdnu
+envi shtwrn @shtwrn
+system "echo "rep$REP     $MDNU     $SHTWRN" >> ../warning-sheet.wrn"
+endif
+
+! ==================================================== !
+! PROJECT THE VELOCITIES AND COORDINATES ONTO VECTOR Q !
+! ==================================================== !
+
+! Obtain the velocities and kinetic energy projected onto Q
+stream ../modules/ek-comp.mdu
+
+! Project the coordinates onto Q
+stream ../modules/coor-comp.mdu
+
+if @mdnu .eq. @time goto end
+
+! ================================================================== !
+! RESCALE KINETIC ENERGY ACCORDING TO VALUES PROJECTED ONTO VECTOR Q !
+! ================================================================== !
+
+label rescale
+set switch 0
+
+! Continue the MD when Ek is between inferior and superior limits
+if @ek .gt. @bottom then
+  if @ek .lt. @top then
+
+    ! read current velocities
+    open read file unit 97 name temporary.velo
+    read coor comp file unit 97
+
+    if @mdnu .lt. @time goto rstrtmd
+
+  endif
+endif
+
+! Re-excite the NM vector when ek is below inferior limit
+! or relax the energy when ek is above superior limit
+
+! read excitation velocities
+open read file unit 15 name vectormodes.vec
+read coor file unit 15
+
+! read projected velocities
+open read file unit 97 name velo-proj.velo
+read coor comp file unit 97
+
+! Calculates the difference (VQ - Vp)
+stream ../lib/main-minus-comp.str
+
+! read current velocities
+open read file unit 15 name temporary.velo
+read coor comp file unit 15
+
+! add it to the difference (VQ - Vp)
+! Vnew = Vdyna + (VQ - Vp)
+scalar xcomp sum x
+scalar ycomp sum y
+scalar zcomp sum z
+
+if @mdnu .lt. @time goto rstrtmd
+
+!
+! ============================= END OF MOLECULAR DYNAMICS BLOCK ============================== !
+!
+
+label end
+
+! Generate the file containing the representation of excitation directions
+system "ls -Art cntrl*.vec | sed 's/\.vec//g' > vec-list.txt; echo 999 >> vec-list.txt"
+stream ../modules/vec-list.mdu
+
+! Workspace cleaning and saving
+system "if [ $(head -1 ../warning-helix.wrn | awk '{print $1}') != "REPLICA" ]; then sed -i '1iREPLICA     EXCITATION     LOST PERCENTAGE' ../warning-helix.wrn; fi"
+system "if [ $(head -1 ../warning-sheet.wrn | awk '{print $1}') != "REPLICA" ]; then sed -i '1iREPLICA     EXCITATION     LOST PERCENTAGE' ../warning-sheet.wrn; fi"
+system "rm -f temp* *.mdu *.txt initcoor.coor *.vec *.velo"
+system "rm -f ../modules/*2.mdu"
+system "rm -f ../inputs/*.tmp"
+system "rm -rf ../dihe ../enm ../local ../custom"
+system "gzip *.crd *.rst *.out"
+
+stop

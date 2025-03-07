@@ -1,0 +1,11 @@
+! STREAM FILE TO RANDOM DETERMINATE THE VECTOR SIGN
+! normal modes coordinates are in the comp array
+
+calc randir = ?rand - 0.5
+set isign 1
+
+if randir .lt. 0 set isign -1
+
+scalar xcomp mult @isign sele PRTN end
+scalar ycomp mult @isign sele PRTN end
+scalar zcomp mult @isign sele PRTN end

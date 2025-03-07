@@ -1,0 +1,12 @@
+! CONVERT NAMD INTERNAL UNITS TO CHARMM
+! NAMD internal units and must be scaled to convert
+! to AKMA units
+
+! The result is in main array
+
+! Set the scaling factor
+set pdbvelfactor 20.45482706
+
+scalar x divi @pdbvelfactor
+scalar y divi @pdbvelfactor
+scalar z divi @pdbvelfactor

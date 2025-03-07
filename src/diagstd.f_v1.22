@@ -1,0 +1,1378 @@
+CoM=====================================================================
+CoM...Diagstd: Full diagonalization of a matrix, real, symmetrical.
+CoM---------------------------------------------------------------------
+CoM
+CoM   Purpose: For diagonalising small matrices.
+CoM
+CoM   Property: Asks a couple of questions only.
+CoM
+CoM   Diagonalization routine: TQLI (EISPACK).
+CoM  -simple, public domain, but slow (ALL eigenvectors are computed).
+CoM   
+CoM---------------------------------------------------------------------
+c     CPU: 
+c     Risoul (2008), matrix order=3N=2700: 35 min. 
+c     Europe (2011), matrix order=3N=2200:  6 min. 
+CoM
+CoM   INPUT matrix filename (expected from, e.g., PDBMAT program):
+CoM   ************************************************************
+CoM  *Default (first one found picked):
+CoM   CERFACS -Formatted : matrix.sdijf or pdbmat.sdijf
+CoM   CERFBIN -Binary    : matrix.sdijb or pdbmat.sdijb
+CoM
+CoM   This is a free matrix format: 
+CoM   i, j, non-zero-ij-element.
+CoM   The file can start with a title, recognized by: 
+CoM   !,# in first column, or 'program-name>' as first word.
+CoM   ALL the matrix is put into memory (including zeroes).
+CoM   As a consequence, only SMALL systems can be handled.
+CoM
+CoM  *Otherwise, a formatted matrix filename is asked for.
+CoM   In that case, the format can be as above, or a PDB-like one.
+CoM
+CoM   OUTPUT:
+CoM   *******
+CoM   An eigenvector file.
+CoM   Its filename is obtained by replacing the matrix filename suffix.
+CoM   Its format: 
+CoM  *CERFACS one, if the matrix is in free format.
+CoM  *PDB-like one, ortherwise.
+CoM.....................................................................
+      program diagstd
+      implicit none
+      integer ndimx
+CoM
+CoM   This is a fortran 77 program (sorry), so it has predefined:
+CoM   ==============
+CoM   MEMORY LIMITS:
+CoM   ==============
+CoM   Modify them if needed, that is, if the program complains or
+CoM   if you are studying (too) large systems. 
+CoM
+c     NDIMX: Maximum order of the input matrix.
+
+      parameter( ndimx=10000 )
+
+CoM   Then, to (re)compile this program, type:
+CoM   make diagstd
+CoM   or:
+CoM   g77 -o diagstd diagstd.f
+CoM   or use your favorite fortran compiler instead (of g77).
+CoM   
+CoM   To run it in the current directory, type: ./diagstd
+c-----------------------------------------------------------------------
+      logical qatpdb, qcrois, qexist, qinfo, qinterr, 
+     .        qmat(ndimx,ndimx), qok, qpdb
+      integer i, ii, j, jj, k, 
+     .        cmot, evord(ndimx), isit, ivec,
+     .        lmatmx, lmot, lnomeig, lnomf, lnomx, lout,
+     .        nbig, ncoor, nelm, nelmrd, nlok, nlow, nmots, nmotsmx, 
+     .        nok, nord, npb, nredond, nsit, ntit, ntitpdb, ntrace, 
+     .        nvecout, nunit, rdunit, 
+     .        unmess, unmodes
+      double precision amat(ndimx,ndimx), 
+     .        elmax, elmin, entropy, ev(ndimx), evsort(ndimx),
+     .        matrd, maxentr, modentr(ndimx), proba, psit, 
+     .        rave, rdev, rmax, rmin, rsmall, 
+     .        tracabs, trace, tracmat, tracoff(ndimx),
+     .        whigh, work(ndimx)
+c     lnomx : maximum filename size.
+c     lmatmx: maximum matrix line length.
+      parameter(lmatmx=256,lnomx=256,nmotsmx=256)
+      character cformat*20, cstatus*20, eige*4, key*6,
+     .        lignrd*50, linmat*(lmatmx), 
+     .        matrice*20, mots(nmotsmx)*(lnomx), 
+     .        nomeig*(lnomx), nomfich*(lnomx), nommat*(lnomx), 
+     .        program*9, progrer*12, progrwn*12, sitnam(ndimx)*24, 
+     .        version*32
+CoM---------------------------------------------------------------------
+CoM   This software is released under the CeCILL FREE SOFTWARE LICENSE.
+CoM   In short: this license is compatible with the GNU GPL.
+CoM   Specifically: it grants users the right to modify and redistribute 
+CoM   this software within the framework of an open source distribution 
+CoM   model. The complete text of the license can be found there:
+CoM   http://www.cecill.info/licences/Licence_CeCILL_V2-en.html
+CoM---------------------------------------------------------------------
+CoM   In case of problem(s), feel free to tell:
+CoM   Yves-Henri.Sanejouand@univ-nantes.fr (bug reports also help others).
+CoM---------------------------------------------------------------------
+ChRo  YHS-Sep-2002: Premiere version, from diagijr v1.13 (Bordeaux).
+ChRo  YHS-Mar-2008: v1.10 (Lyon).
+      version=' Version 1.22, December 2016.'
+ 
+      program=' Diagstd>'
+      progrer='%Diagstd-Er>'
+      progrwn='%Diagstd-Wn>'
+ 
+c     Sortie standard: 
+      unmess=6
+      write(unmess,'(2A)') program,version
+CoM
+CoM   By default, eigenvector are ranked by increasing eigenvalues.
+c     That is: LOWEst first. 
+      eige='LOWE'
+
+c     Input precision (for warnings):
+      rsmall=1e-06
+      nunit=10
+      rdunit=nunit
+      nunit=nunit+1
+ 
+c     Detection de la matrice d'entree:
+c     --------------------------------
+      cformat='FORMATTED'
+      matrice='CERFACS'
+      cstatus='OLD'
+
+      nomfich='matrix.sdijf'
+      inquire(file=nomfich,exist=qexist)
+      if (qexist) then
+          nommat=nomfich
+          qok=.true.
+          nok=1
+      else
+          qok=.false.
+          nok=0
+      endif
+
+      nomfich='matrice.sdijf'
+      inquire(file=nomfich,exist=qexist)
+      if (qexist) then
+          nommat=nomfich
+          qok=.true.
+          nok=nok+1
+      endif
+
+      nomfich='pdbmat.sdijf'
+      inquire(file=nomfich,exist=qexist)
+      if (qexist) then
+          nommat=nomfich
+          qok=.true.
+          nok=nok+1
+      endif
+
+      nomfich='matrix.sdijb'
+      inquire(file=nomfich,exist=qexist)
+      if (qexist) then
+          cformat='UNFORMATTED'
+          matrice='CERFBIN'
+          nommat=nomfich
+          qok=.true.
+          nok=nok+1
+      endif
+      
+      nomfich='matrice.sdijb'
+      inquire(file=nomfich,exist=qexist)
+      if (qexist) then
+          cformat='UNFORMATTED'
+          matrice='CERFBIN'
+          nommat=nomfich
+          qok=.true.
+          nok=nok+1
+      endif
+
+      nomfich='pdbmat.sdijb'
+      inquire(file=nomfich,exist=qexist)
+      if (qexist) then
+          cformat='UNFORMATTED'
+          matrice='CERFBIN'
+          nommat=nomfich
+          qok=.true.
+          nok=nok+1
+      endif
+
+      if (qok.and.nok.gt.1) then
+          write(unmess,'(/A,I1,A)') 
+     .    progrwn,nok,' possible matrix (default) filenames found.'//
+     .  ' Please specify which one you want.' 
+          qok=.false.  
+      endif
+
+      if (qok) then
+         call stringcl(nommat,lnomf)
+      else
+         call getnam("Matrix filename ? (formatted)",nommat,lnomf,qok)
+         if (.not.qok) stop '*Required*'
+         if (lnomf.ge.lnomx) 
+     .   write(unmess,'(4A)') progrwn,' Long filename: "',
+     .   nommat(1:lnomf),'". Please check if it has been truncated.'
+         matrice='UNKNOWN'
+      endif
+
+      call openam(nommat,lnomf,cformat,cstatus,rdunit,.true.,
+     .     qinterr,qexist)
+      if (qinterr.or..not.qexist)
+     .    stop '*Matrix file could not be opened*'
+
+      call getrep("Eigenvector rank: highest eigenvalues first ? (Y/N)",
+     .     qinfo,qok)
+      if (qinfo.and.qok) eige='HIGH'
+
+      call getnum("Number of eigenvectors saved ? "//
+     .            "(<0 or any letter means: all of them)",nvecout,
+     .            -1,ndimx,.false.,qok)
+      if (nvecout.lt.0.or..not.qok) nvecout=ndimx
+
+c     ======================================================
+c     Lecture matrice d'entree (CERFACS, CERFBIN, PDB-like):
+c     ======================================================
+ 
+      write(unmess,'(3A)') program,
+     .    ' Matrix to be read from file: ',nommat(1:lnomf)
+ 
+c     1) La matrice a un titre ?
+c     --------------------------
+ChnG  Also T if ATOM, HETATM or AVERAGE
+      qatpdb=.false.
+      qpdb=.false.
+      ntitpdb=0
+      ntit=0
+  55  continue
+      if (matrice.eq.'CERFBIN') then
+          read(rdunit,end=60,err=900) linmat 
+      else
+          read(rdunit,'(A)',end=60,err=900) linmat 
+      endif
+
+      if (linmat(1:1).eq.'!'.or.linmat(1:1).eq.'#') then
+          ntit=ntit+1
+          write(unmess,'(2A)') linmat(1:72),' ...'
+          goto 55
+      elseif (linmat(1:6).eq.'REMARK') then
+          qpdb=.true.
+          ntitpdb=ntitpdb+1
+          write(unmess,'(2A)') linmat(1:72),' ...'
+          goto 55
+      elseif (linmat(1:6).eq.'AVPROP'.or.linmat(1:6).eq.'CORREL') then
+          qpdb=.true.
+          goto 60
+      elseif (linmat(1:6).eq.'VECTOR'.or.linmat(1:6).eq.'EIGENS') then
+          write(unmess,'(/4A)') progrer,' File "',nomeig(1:lnomeig),
+     .       '" is a vector file.'
+          stop '*Wrong input file*'
+      else
+          lignrd=linmat
+          call string_split(linmat,80,' ',mots,nmotsmx,nmots)
+          call stringcl(mots(1),lmot)
+          if (mots(1)(lmot:lmot).eq.'>') then
+              ntit=ntit+1
+              write(unmess,'(2A)') lignrd,' ...'
+              goto 55
+          endif
+      endif
+  60  continue
+      ntit=ntit+ntitpdb
+      write(unmess,'(2A,I6,A)') program,' It has ',ntit,
+     .    ' title ligne(s).'
+CoM
+CoM   Output vector file suffix: either eigenfacs or eigenpdb
+
+      unmodes=-1
+      if (nvecout.gt.0) then
+      call string_split(nommat,lnomf,'.',mots,nmotsmx,nmots)
+      if (nmots.eq.1) then
+          if (qpdb) then
+              nomeig=nommat(1:lnomf)//'.eigenpdb'
+              lnomeig=lnomf+9
+          else
+              nomeig=nommat(1:lnomf)//'.eigenfacs'
+              lnomeig=lnomf+10
+          endif
+      else
+          call stringcl(mots(1),lmot)
+          nomeig=mots(1)(1:lmot)
+          cmot=lmot
+          if (nmots.gt.2) then
+          do i=2,nmots-1
+             call stringcl(mots(i),lmot)
+             nomeig(cmot+1:cmot+lmot+1)='.'//mots(i)(1:lmot)
+             cmot=cmot+lmot+1
+          enddo
+          endif
+          if (qpdb) then
+              nomeig=nomeig(1:cmot)//'.eigenpdb'
+              lnomeig=cmot+9
+          else
+              nomeig=nomeig(1:cmot)//'.eigenfacs'
+              lnomeig=cmot+10
+          endif
+      endif
+
+      if (lnomeig.le.lnomx) then
+      inquire(file=nomeig,exist=qexist)
+      if (.not.qexist) then
+      cformat='FORMATTED'
+      cstatus='new'
+      unmodes=nunit
+      nunit=nunit+1
+      call openam(nomeig,lnomeig,cformat,cstatus,unmodes,.true.,
+     .     qinterr,qexist)
+      else 
+      write(unmess,'(/4A)') progrer,' File "',nomeig(1:lnomeig),
+     .  '" already exists.'
+      stop '*Please remove it yourself*'
+      endif
+      else
+      write(unmess,'(/4A)') progrer,
+     .   ' Matrix filename too long. '//
+     .   ' Eigenvector filename must be truncated to: "',
+     .     nomeig(1:lnomeig),'"'
+      stop '*Please change the matrix filename or recompile*'
+      endif
+      endif
+CoM
+CoM   Each line of a PDB-like matrix starts with a key:
+CoM   Either REMARK, AVPROP or CORREL.
+ChnG  Add more.
+
+c     2) First check:
+c     ---------------
+      if (qpdb) then
+          write(unmess,'(/2A)') program,
+     .  ' Matrix to be read is in PDB-like format.'
+          matrice='PDBLIKE'
+          nlok=0
+          nsit=0
+          nelm=0
+          npb=0
+
+  65      continue
+          if (linmat(1:6).ne.'REMARK') then
+          if (linmat(1:6).eq.'AVPROP') then
+              nsit=nsit+1
+          elseif (linmat(1:6).eq.'CORREL') then
+              nelm=nelm+1
+          else
+              npb=npb+1
+              if (npb.eq.1) 
+     .            write(unmess,'(2A)') 
+     .            progrer,' Wrong PDB-like matrix file:'
+              if (npb.lt.5) then
+                  write(unmess,'(2A)') linmat
+              elseif (npb.eq.5) then
+                  write(unmess,'(2A)') progrer,' ...'
+              endif
+          endif 
+          endif
+          nlok=nlok+1
+          read(rdunit,'(A)',end=70,err=905) linmat 
+          goto 65
+
+  70      continue
+          if (npb.gt.0) then
+              write(unmess,'(/A,I9,A)') progrer,npb,
+     .      ' lines with keys other than REMARK, AVPROP or CORREL.'
+              stop '*Wrong PDB-like matrix file*'
+          endif
+          if (nelm.eq.0) then
+              write(unmess,'(/2A)') progrer,
+     .      ' No line starting with key CORREL.'
+              stop '*Wrong PDB-like matrix file*'
+          endif
+          if (nsit.eq.0) then
+              write(unmess,'(/2A)') progrwn,
+     .      ' No line starting with key AVPROP.'
+              stop '*Wrong PDB-like matrix file*'
+          endif
+      else
+          write(unmess,'(/2A)') program,
+     .  ' Matrix to be read is in CERFACS (free) format.'
+      endif
+
+c     3) Ordre de la matrice, nombre d'elements non-nuls:
+c     ---------------------------------------------------
+      rewind(rdunit)
+      if (ntit.gt.0) then
+          do i=1,ntit
+             if (matrice.eq.'CERFBIN') then
+                 read(rdunit)
+             else
+                 read(rdunit,*)
+             endif
+          enddo
+      endif
+
+      nelm=0
+      nord=0
+      nsit=0
+  90  continue
+      if (matrice.eq.'CERFBIN') then
+          read(rdunit,end=95,err=910) i,j
+      elseif (matrice.eq.'PDBLIKE') then
+          read(rdunit,'(A)',end=95,err=910) linmat
+          if (linmat(1:6).eq.'REMARK') goto 90 
+CoM
+CoM       AVPROP lines of PDB-like matrix-files are not checked.
+CoM       They are just transferred to the eigenvector file,
+CoM       the first 30 characters being treated as the site name.
+
+          if (linmat(1:6).eq.'AVPROP') then
+              if (unmodes.gt.0) then
+              call stringsize(linmat,lout)
+              nsit=nsit+1
+              sitnam(nsit)=linmat(7:30)
+              endif
+              goto 90
+          endif
+          if (linmat(1:6).eq.'CORREL') 
+     .    read(linmat,*,end=910,err=910) key,i,j
+      else
+          read(rdunit,*,end=95,err=910) i,j
+      endif
+      nelm=nelm+1
+      if (i.le.0.or.j.le.0) then
+          write(unmess,'(/2A,I9,2(A,I6))')
+     .    progrer,' in ligne: ',nelm,' I= ',i,' J= ',j
+          stop '*Wrong matrix element indices*'
+      endif
+      if (i.gt.nord) nord=i
+      if (j.gt.nord) nord=j
+      goto 90
+
+  95  continue
+      write(unmess,'(/2A,I9)')
+     .     program,' Matrix dimension  (Nord)   = ',nord
+      if (nord.eq.0) stop '*Not enough*'
+      write(unmess,'(2A,I9)')
+     .     program,' Number of non-zero elements: ',nelm
+      if (nelm.eq.0) stop '*Not enough*'
+ 
+      if (nord.gt.ndimx) then
+          write(unmess,'(2A)')
+     .    progrer,' Matrix can not be stored into memory.'
+          if (nord.gt.ndimx) write(unmess,'(/2(A,I9))')
+     .  ' Nord= ',nord,': larger than maximum allowed, namely: ',ndimx
+          stop '*You have to recompile (sorry)*'
+      endif
+
+      if (qpdb) then
+      if (nord.ge.nsit.and.mod(nord,nsit).eq.0) then
+          ncoor=nord/nsit
+          write(unmess,'(2A,I9)')
+     .    program,' Nb of coordinates per site = ',ncoor
+      else
+          write(unmess,'(/2A)')
+     .    progrer,' Non-consistent matrix order and number of sites.'
+          stop '*Wrong PDB-like matrix file*'
+      endif
+      endif
+ 
+      nelmrd=nelm
+
+c     4) Lecture de la matrice:
+c     -------------------------
+      rewind(rdunit)
+      if (ntit.gt.0) then
+          if (unmodes.gt.0) then
+          if (qpdb) then
+          write(unmodes,'(A,5X,2A)') 
+     .   'REMARK',program,version,
+     .   'REMARK',' Diagonalized matrix comes from:'
+          else
+          write(unmodes,'(3A)') 
+     .   '!',program,version,
+     .   '! Diagonalized matrix comes from:'
+          endif
+          endif
+
+          do i=1,ntit
+          if (matrice.eq.'CERFBIN') then
+              read(rdunit)
+          else
+              read(rdunit,'(A)') linmat
+              if (unmodes.gt.0) then
+                  call stringsize(linmat,lout)
+                  write(unmodes,'(A)') linmat(1:lout)
+              endif
+          endif
+          enddo
+      endif
+ 
+      tracmat=0.d0
+      elmax=0.d0
+      elmin=0.d0
+      nredond=0
+      ntrace=0
+      nbig=0
+      nelm=0
+      do i=1,nord
+         tracoff(i)=0.d0
+         do j=1,nord
+            qmat(i,j)=.false.
+            amat(i,j)=0.d0
+         enddo
+      enddo
+
+  100 continue
+      nelm=nelm+1
+  105 continue
+
+      if (matrice.eq.'CERFBIN') then
+          read(rdunit,err=910) i,j,matrd
+      elseif (matrice.eq.'PDBLIKE') then
+          read(rdunit,'(A)',err=910) linmat
+c         Au cas ou:
+          if (linmat(1:6).eq.'REMARK') goto 105
+          if (linmat(1:6).eq.'AVPROP') then
+              if (unmodes.gt.0) then
+              call stringsize(linmat,lout)
+              write(unmodes,'(A)') linmat(1:lout)
+              endif
+              goto 105
+          endif
+          if (linmat(1:6).eq.'CORREL') 
+     .    read(linmat,*,end=910,err=910) key,i,j,matrd
+      else
+          read(rdunit,*,err=910) i,j,matrd
+      endif
+ 
+      if (.not.qmat(i,j)) then
+          qmat(i,j)=.true.
+          if (i.eq.j) then 
+              amat(i,i)=matrd
+              tracmat=tracmat+matrd
+              ntrace=ntrace+1
+          else
+              amat(i,j)=matrd
+              amat(j,i)=matrd
+              tracoff(i)=tracoff(i)+matrd
+              tracoff(j)=tracoff(j)+matrd
+          endif
+          if (nelm.eq.1.or.amat(i,j).gt.elmax) elmax=amat(i,j)
+          if (nelm.eq.1.or.amat(i,j).lt.elmin) elmin=amat(i,j)
+          if (matrd.gt.1E+10) then
+              nbig=nbig+1
+              if (nbig.lt.10) then
+                  write(unmess,'(2A,2I12,A,G12.3)') 
+     .            progrwn,' Element: ',i,j,' = ',matrd
+              else 
+                 if (nbig.eq.10) write(unmess,*) '...'
+              endif
+          endif
+      else
+          nredond=nredond+1
+      endif
+      if (nelm.lt.nelmrd) goto 100
+
+      if (nredond.gt.0) then
+      write(unmess,'(2A,I9)') program,
+     .    ' Elements found twice (at least): ',nredond
+      write(unmess,'(2A/)') progrwn,' Ok ? (unusual)'
+      else
+      write(unmess,'(2A,I9)') program,
+     .    ' Elements found twice       : ',nredond
+      endif
+      write(unmess,'(2A,I9)') program,
+     .    ' Nb of elements over 1E+10  : ',nbig
+      if (nbig.gt.0) 
+     .write(unmess,'(2A/)') progrwn,' Ok ?'
+      write(unmess,'(2A,F17.7)') program,
+     .    ' Largest matrix element     = ',elmax
+      write(unmess,'(2A,F17.7)') program,
+     .    ' Smallest matrix element    = ',elmin
+      write(unmess,'(2A,I9)') program,
+     .    ' Nb of zeroes on diagonal   : ',nord-ntrace
+      if (ntrace.eq.0) then
+      write(unmess,'(2A)') progrwn,' No diagonal element found.'
+      write(unmess,'(2A/)') progrwn,' Ok ?'
+      endif
+      trace=0.d0
+      do i=1,nord
+         trace=trace+tracoff(i)
+      enddo
+      write(unmess,'(2A,F17.7)') program,
+     .    ' Sum off-diagonal elements  = ',trace
+      write(unmess,'(2A,F17.7)') program,
+     .    ' Matrix trace               = ',tracmat
+ 
+c     Diagonalisation:
+c     ----------------
+      write(unmess,'(/2A)') program,' Diagonalization.'
+ 
+      write(unmess,'(A,I6,A)') program,
+     .      nord,' eigenvectors are about to be computed. '
+      if (nvecout.gt.nord) nvecout=nord
+
+c     Initialisations:
+      do i=1,ndimx
+         ev(i)=0.d0
+      enddo
+ 
+c     Eigenvalues/Matrix Diagonalization
+CoM
+CoM   TRED2 and TQLI (based on the original EISPACK library) 
+CoM   perform a diagonalization of a real symmetric matrix based 
+CoM   on the QL algorithm. 
+
+      CALL TRED2(amat,nord,ndimx,ev,work)
+      CALL TQLI(ev,work,nord,ndimx,amat)
+ 
+      trace=0.d0
+      do i=1,nord
+         trace=trace+ev(i)
+      enddo
+      write(unmess,'(/2A,F21.7)') program,
+     .     ' Sum of eigenvalues (trace of eigen-matrix) =',trace
+      if (dabs(tracmat-trace).gt.rsmall)
+     .write(unmess,'(/2A)') progrwn,
+     .   'Diagonalization can not change the trace of a matrix !'
+ 
+c     Trier par ordre croissant ou decroissant:
+      if (eige.eq.'LOWE') then
+          qcrois=.true.
+      else
+          qcrois=.false.
+      endif
+      call trier(ev,nord,ndimx,evsort,evord,qcrois)
+CoM
+CoM   The entropy of the eigenvectors assesses their locality.
+CoM   Here, the sum is over the sites.
+
+      maxentr=0.d0
+      do ivec=1,nord
+         modentr(ivec)=0.d0
+         do isit=1,nsit
+            j=(isit-1)*ncoor
+            psit=0.d0
+            do k=1,ncoor
+               psit=psit+amat(j+k,ivec)**2.0
+            enddo
+            if (psit.gt.0.d0)
+     .      modentr(ivec)=modentr(ivec)-psit*log(psit)
+            if (modentr(ivec).gt.maxentr) maxentr=modentr(ivec)
+         enddo
+      enddo 
+
+      write(unmess,'(/2A)') program,' Eigenvector site entropy:'
+      call rvecstat(modentr,nord,rmin,rmax,rave,rdev,.true.)
+
+      write(unmess,'(/2A/(5F15.7))') program,
+     .   ' Eigenvector relative site entropy: ',
+     .    (modentr(evord(i))-rmin,i=1,nvecout)
+
+      write(unmess,'(/2A/(5F15.7))') program,
+     .    ' Eigenvalues: ',(evsort(i),i=1,nvecout)
+CoM
+CoM   The weight of the largest (absolute) eigenvalue 
+CoM   is its ratio with the sum of all (absolute) eigenvalues.
+CoM   It has a well-defined meaning when all eigenvalues have same sign.
+
+      tracabs=0.d0
+      do i=1,nord
+         tracabs=tracabs+dabs(evsort(i))
+      enddo
+      whigh=max(dabs(evsort(1)),dabs(evsort(nord)))/tracabs
+      write(unmess,'(/2A,F8.2,A)') program,
+     .  ' Weight of the largest eigenvalue: ',100.0*whigh,'%'
+CoM
+CoM   The entropy of the eigenvalue (ev) spectrum is calculated
+CoM   with normalized eigenvalues:
+CoM   It is the sum of -(ev/trace)*log(ev/trace)
+CoM   It has a meaning only if all eigenvalues are positive. 
+
+      nlow=0
+      do i=1,nord
+         proba=dabs(ev(i))/trace
+         if (proba.gt.0.d0) entropy=entropy-proba*log(proba) 
+         if (ev(i).lt.0.d0.and.dabs(ev(i)).gt.rsmall) nlow=nlow+1
+      enddo
+      write(unmess,'(2A,F8.2,A)') program,
+     .  ' Entropy of eigenvalue spectrum  : ',entropy
+      if (nlow.gt.0)
+     .   write(unmess,'(A,I4,A)') progrwn,nlow,' negative eigenvalues'//
+     . ' (absolute values considered for the entropy).'
+
+ChnG  Guess if it is... en fonction du format de fichier d'entree ?
+ChnG (PDB-like + ATOM/HETATM ou AVERAGE)
+
+      if (qatpdb)
+     .    WRITE(unmess,'(/2A/(5F15.7))') program,
+     .  ' Frequencies (cm-1, '//
+     .   'if the matrix is a hessien in CHARMM units):',
+     .   (sqrt(dabs(evsort(i)))*108.591365,i=1,nvecout)
+
+c     Ecriture des modes normaux au format 'PDB-like' ou 'CERFACS':
+c     -------------------------------------------------------------
+      if (unmodes.gt.0) then
+      if (qpdb) then
+      write(unmess,'(/A,I5,A)') program,nvecout,
+     . ' vector(s) saved in PDB-like format.'
+      do ivec=1,nvecout
+         i=evord(ivec)
+         write(unmodes,'(A,I5,6X,A,1X,1PG13.5)') 
+     .  'EIGENS',ivec,'EIGENVALUE:',ev(i)
+         do j=1,nsit
+            write(unmodes,'(2A,10F8.3)')
+     .     'VECTOR',sitnam(j),(amat(k,i),k=(j-1)*ncoor+1,j*ncoor)
+         enddo
+         write(unmodes,'(A)') 'ENDEIG'
+      enddo
+
+      else
+      write(unmess,'(/A,I5,A)') program,nvecout,
+     . ' vector(s) saved in CERFACS format.'
+      do ivec=1,nvecout
+         i=evord(ivec)
+         write(unmodes,'(A,I5,7X,A,1PG12.4)') 
+     .       ' VECTOR',ivec,'VALUE',ev(i)
+         write(unmodes,'(1X,35(1H-))') 
+         write(unmodes,'(3(1PG12.4))') 
+     .        (amat(k,i),k=1,nord)
+      enddo
+      endif
+      endif
+ 
+      write(unmess,'(/2A)')
+     .      program,' Normal end.'
+ 
+      stop 
+ 900  continue
+      write(unmess,'(/2A)')
+     .      progrer,' I/O error while seeking for title lines.'
+      write(unmess,'(A,I6,A)')
+     .      progrer,ntit,' title line(s) read.'
+      stop '*Wrong matrix file*'
+ 905  continue
+      write(unmess,'(/2A)')
+     .      progrer,' I/O error while checking PDB-like file.'
+      write(unmess,'(A,I6,A)')
+     .      progrer,ntit,' title line(s) read.'
+      write(unmess,'(A,I6,A)')
+     .      progrer,nlok,' other line(s) read.'
+      stop '*Wrong matrix file*'
+ 910  continue
+      write(unmess,'(/A,I6,A)')
+     .      program,nelm,' matrix element(s) read.'
+      write(unmess,'(2A)')
+     .      progrer,' I/O error while reading next one.'
+      if (matrice.eq.'PDBLIKE') then
+          write(unmess,'(2A/A)') progrer,'Could not read line:',linmat
+      else
+          write(unmess,'(2A)') progrer,' Expected format: i j element'  
+      endif
+      stop '*Wrong matrix format*'
+      end
+c-----------------------------------------------------------------------
+      subroutine stringsize(chaine,lstcar)
+CoS=====================================================================
+CoS...stringsize: Gives the position of last non-blank character.
+CoS---------------------------------------------------------------------
+CoS
+CoS   Property: Last character of the string is ignored.
+Cos             Reason: Can be a special character.
+Cos
+CoS---------------------------------------------------------------------
+c     Version 1.00: YHS-Dec-2011, Nantes.
+c     Version 2.00: YHS-May-2015.
+c I/O:
+      integer lstcar
+      character chaine*(*)
+c Local:
+      integer icar, icol, taille
+ 
+      taille=len(chaine)
+      if (taille.le.1) then
+          lstcar=taille
+          return
+      endif    
+
+      do lstcar=taille-1,1,-1
+         if (chaine(lstcar:lstcar).ne.' ') return
+      enddo
+ 
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine rvecstat(vect,nmax,rmin,rmax,rave,rdev,qprint)
+CoS=====================================================================
+CoS...Rvecstat: Statistics for a REAL vector.
+CoS---------------------------------------------------------------------
+CoS
+CoS   Minimum, maximum, average (rave) and standard deviation (rdev).
+CoS
+CoS   Input: REAL vector Vect(NMAX):
+CoS
+c     YHS-Sep-03: First version (Lyon).
+c     YHS-Oct-07: version 1.03 (Lyon).
+c     YHS-Sep-11: version 1.05 (Nantes).
+cI/O:
+      integer nmax
+      logical qprint
+      double precision rave, rdev, rmax, rmin, vect(*)
+cLocal:
+      integer i
+      character program*10, progrer*13, progrwn*13
+
+cBegin:
+      program=' Rvecstat>'
+      progrer='%Rvecstat-Er>'
+      progrwn='%Rvecstat-Wn>'
+
+      rave=0.d0
+      rdev=0.d0
+      rmin=-9999.d0
+      rmax=9999.d0
+
+      if (nmax.le.0) then
+          write(6,'(2A)') progrer,' Zero-length vector.'
+          return
+      endif
+
+      do i=1,nmax
+         if (vect(i).gt.rmax.or.i.eq.1) rmax=vect(i)
+         if (vect(i).lt.rmin.or.i.eq.1) rmin=vect(i)
+         rave=rave+vect(i)
+         rdev=rdev+vect(i)**2.0
+      enddo
+
+      rave=rave/dfloat(nmax) 
+      rdev=rdev/dfloat(nmax)-rave*rave
+      if (rdev.gt.0.d0) then
+          rdev=dsqrt(rdev)
+      else
+          rdev=0.d0
+      endif
+
+      if (qprint) then
+          write(6,'(A,2(A,1PG14.6))') program,' Mean = ',
+     .    rave,' +/- ',rdev 
+          write(6,'(A,2(A,1PG14.6))') program,' Mini = ',
+     .    rmin,' Mx: ',rmax
+      endif
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine openam(namfil,lnom,cformat,cstatus,unit,qverbos,
+     .                  qinterr,qexist)
+c======================================================================= 
+
+c     Ouverture d'un fichier de nom NAMFIL, sur l'unite UNIT.
+ 
+c======================================================================= 
+c     input:
+c        namfil: nom du fichier a ouvrir. 
+c        lnom: longueur de ce nom.
+c       "stop", "end", "fin", "quit" : arretent le programme.
+c        cstatus: mots-cles fortran... ou "OVE" pour overwrite.
+
+c     output: 
+c        qexist: flag / existence du fichier 
+c        qinterr: Pas de nom pour le fichier cherche.
+ 
+c.......................................................................
+c     v1.00: YHS-Oct-1993.
+c     v1.62: YHS-Mar-2015.
+c.......................................................................
+      logical qexist, qinterr, qverbos
+      integer lnom, unit
+      character cformat*12, cstatus*12, namfil*(*)
+c Local
+      integer lcmd
+      parameter(lcmd=1024)
+      character ordrunix*(lcmd)
+c Begin:
+      if (cstatus.eq.'old') cstatus='OLD'
+      if (cstatus.eq.'new') cstatus='NEW'
+      if (cstatus.eq.'ove') cstatus='OVE'
+      if (cstatus.eq.'unknown') cstatus='UNKNOWN'
+ 
+      qinterr=.false.
+      qexist=.false.
+ 
+      if (namfil.eq.' ') then 
+          qinterr=.true.
+          write(6,'(A)') '%Openam-Er> No filename.'
+          return
+      endif
+ 
+      if (namfil.eq.'stop'.or.namfil.eq.'end'.or. 
+     .    namfil.eq.'fin'.or.namfil.eq.'quit'.or.
+     .    namfil.eq.'STOP'.or.namfil.eq.'END'.or.                     
+     .    namfil.eq.'FIN'.or.namfil.eq.'QUIT') then 
+         write(6,'(A)') 'Openam> Program stopped on user request.'
+         stop '*As you wish*'
+      endif 
+ 
+c     Checks if filename is consistent with the opening:
+ 
+      inquire(file=namfil,exist=qexist)
+      if (.not.qexist.and.cstatus.eq.'OLD') then
+          qinterr=.true.
+          write(6,'(/3A)') '%Openam-Er> File "',
+     .         namfil(1:lnom),'" not found.'
+          return
+      endif
+ 
+      if (qexist.and.cstatus.eq.'NEW') then
+         write(6,'(/3A)') 
+     .      '%Openam-Er> File: ',namfil(1:lnom),' exists.'
+         stop '*Should not*'
+      else if (qexist.and.cstatus.eq.'OVE') then
+         if (lnom+3.le.lcmd) then
+         ordrunix='rm '//namfil(1:lnom)
+         call system(ordrunix)
+         else
+         write(6,'(/3A)') 
+     .      '%Openam-Wn> Could not delete file: ',namfil(1:lnom),
+     .     ' (filename too long for this routine, sorry)'
+         endif
+      endif
+      if (cstatus.eq.'OVE') cstatus='NEW'
+                                                                    
+      if (qverbos) then
+         write(6,'(/A,I2,2A)')
+     . ' Openam> File on opening on unit ',unit,': ',namfil(1:lnom)
+      endif
+      open(file=namfil,form=cformat,
+     .     status=cstatus,unit=unit)                
+         
+      return                                                                       
+      end
+CoS---------------------------------------------------------------------
+      subroutine getnam(message,nomlu,lnomlu,qok)
+CoS   GETNAM:
+CoS
+CoS   Input : a MESSAGE (usually: a question).
+CoS   Output: a string (NOMLU) and its length (LNOMLU).
+CoS   
+c     If something has been read, qok=T.
+c     YHS-oct-96
+      implicit none
+cI/O:
+      integer lnomlu
+      logical qok
+      character*(*) message, nomlu
+cLocal:
+      integer ntry, ntrymx
+cBegin:
+c     NTRYMX essais en cas de probleme.
+      ntrymx=1
+ 
+      qok=.false.
+      ntry=0
+ 
+ 100  continue
+      ntry=ntry+1
+      if (ntry.gt.ntrymx) return
+ 
+      write(6,'(A,A)') ' Getnam> ',message
+      read(5,'(A)',end=200,err=100) nomlu
+ 
+      call stringcl(nomlu,lnomlu)
+      write(6,'(A,A)') ' Getnam> ',nomlu(1:lnomlu)
+ 
+      if (lnomlu.gt.0) qok=.true.
+      return
+ 200  continue
+      return
+      end 
+c-----------------------------------------------------------------------
+      subroutine getrep(message,qinfo,qok)
+c
+c     qinfo obtenu en reponse au MESSAGE.
+c     NTRYMX essais en cas de probleme.
+c     YHS-jan-00
+c     YHS-mar-14
+c
+      implicit none
+cI/O:
+      logical qok, qinfo
+      character*(*) message
+cLocal:
+      integer ntry, ntrymx
+      character*1 cread
+cBegin:
+      ntrymx=2
+ 
+      qinfo=.false.
+      qok=.false.
+      ntry=0
+c
+ 100  continue
+      ntry=ntry+1
+      if (ntry.ge.ntrymx) goto 200
+ 
+      write(6,'(A,A)') ' Getrep> ',message
+      read(5,'(A)',end=200,err=100) cread
+ 
+      if (cread.eq.'T'.or.cread.eq.'t'.or.
+     .    cread.eq.'Y'.or.cread.eq.'y'.or.
+     .    cread.eq.'O'.or.cread.eq.'o') then
+          qinfo=.true.
+      else
+      if (cread.ne.'F'.and.cread.ne.'f'.and.
+     .    cread.ne.'N'.and.cread.ne.'n')
+     .    write(6,'(3A)') '%Getrep-W> Unexpected answer: *',cread,
+     . '*. Assumed answer is: NO.'
+      endif
+ 
+      write(6,*) 'Getrep> ',qinfo
+ 
+      qok=.true.
+      return
+ 200  continue
+      write(6,'(A)') '%Getrep-W> No answer.'//
+     .    ' Assumed answer is: NO.'
+      return
+      end 
+c-----------------------------------------------------------------------
+      subroutine getnum(message,numlu,nummin,nummax,qcheck,qok)
+c
+c     NUMLU obtenu en reponse au MESSAGE.
+c
+c     qcheck=.true. =>
+c     NUMLU doit etre inferieur a nummax et superieur a nummin.
+c
+c     NTRYMX essais en cas de probleme.
+c     qok=.false. => Probleme a la lecture.
+c     For instance: an integer bigger than the maximum that can be handled.
+c
+c     YHS-oct-96: version 1.0 (Toulouse).
+c     YHS-jan-01: version 4.0 (Bordeaux).
+c
+      implicit none
+cI/O:
+      integer numlu, nummax, nummin
+      logical qok, qcheck
+      character*(*) message
+cLocal:
+      integer ntry, ntrymx, iread
+cBegin:
+      ntrymx=1
+c
+      qok=.false.
+      ntry=0
+c
+ 100  continue
+      ntry=ntry+1
+      if (ntry.gt.ntrymx) return
+c
+      write(6,'(A,A)') ' Getnum> ',message
+      read(5,*,end=200,err=100) iread
+      numlu=iread
+c
+      write(6,*) 'Getnum> ',numlu
+c
+      if (qcheck) then
+      if (numlu.gt.nummax) then
+          write(6,'(A,I6,A)') 
+     .  '%Getnum-Err: Number larger than ',nummax,
+     . '. This is not allowed, sorry.'
+          numlu=nummax
+          return
+      else if (numlu.lt.nummin) then
+          write(6,'(A,I6,A)') 
+     .  '%Getnum-Err: Number smaller than ',nummin,
+     . '. This is not allowed, sorry.'
+          numlu=nummin
+          return
+      endif
+      endif
+c
+      qok=.true.
+      return
+ 200  continue
+      return
+      end 
+c-----------------------------------------------------------------------
+      SUBROUTINE TRED2(A,N,NP,D,E)
+
+c     Reduce the matrix to tridiagonal form.
+
+      integer i, j, k, l, n, np
+      double precision A(NP,NP), D(NP), E(NP), f, g, h, hh,
+     .  scale
+
+      IF(N.GT.1)THEN
+        DO 18 I=N,2,-1
+          L=I-1
+          H=0.
+          SCALE=0.
+          IF(L.GT.1)THEN
+            DO 11 K=1,L
+              SCALE=SCALE+ABS(A(I,K))
+11          CONTINUE
+            IF(SCALE.EQ.0.)THEN
+              E(I)=A(I,L)
+            ELSE
+              DO 12 K=1,L
+                A(I,K)=A(I,K)/SCALE
+                H=H+A(I,K)**2
+12            CONTINUE
+              F=A(I,L)
+              G=-SIGN(SQRT(H),F)
+              E(I)=SCALE*G
+              H=H-F*G
+              A(I,L)=F-G
+              F=0.
+              DO 15 J=1,L
+                A(J,I)=A(I,J)/H
+                G=0.
+                DO 13 K=1,J
+                  G=G+A(J,K)*A(I,K)
+13              CONTINUE
+                IF(L.GT.J)THEN
+                  DO 14 K=J+1,L
+                    G=G+A(K,J)*A(I,K)
+14                CONTINUE
+                ENDIF
+                E(J)=G/H
+                F=F+E(J)*A(I,J)
+15            CONTINUE
+              HH=F/(H+H)
+              DO 17 J=1,L
+                F=A(I,J)
+                G=E(J)-HH*F
+                E(J)=G
+                DO 16 K=1,J
+                  A(J,K)=A(J,K)-F*E(K)-G*A(I,K)
+16              CONTINUE
+17            CONTINUE
+            ENDIF
+          ELSE
+            E(I)=A(I,L)
+          ENDIF
+          D(I)=H
+18      CONTINUE
+      ENDIF
+      D(1)=0.
+      E(1)=0.
+      DO 23 I=1,N
+        L=I-1
+        IF(D(I).NE.0.)THEN
+          DO 21 J=1,L
+            G=0.
+            DO 19 K=1,L
+              G=G+A(I,K)*A(K,J)
+19          CONTINUE
+            DO 20 K=1,L
+              A(K,J)=A(K,J)-G*A(K,I)
+20          CONTINUE
+21        CONTINUE
+        ENDIF
+        D(I)=A(I,I)
+        A(I,I)=1.
+        IF(L.GE.1)THEN
+          DO 22 J=1,L
+            A(I,J)=0.
+            A(J,I)=0.
+22        CONTINUE
+        ENDIF
+23    CONTINUE
+      RETURN
+      END
+c-----------------------------------------------------------------------
+      SUBROUTINE TQLI(D,E,N,NP,Z)
+
+c     Finds the eigenvalues and eigenvectors of a tridiagonal matrix:
+
+      integer i, iter, j, k, l, m, n, np
+      double precision b, c, D(NP), dd, E(NP), f, g, p, r, s,
+     .       Z(NP,NP)
+      
+      IF (N.GT.1) THEN
+        DO 11 I=2,N
+          E(I-1)=E(I)
+11      CONTINUE
+        E(N)=0.
+        DO 15 L=1,N
+          ITER=0
+1         DO 12 M=L,N-1
+            DD=ABS(D(M))+ABS(D(M+1))
+            IF (ABS(E(M))+DD.EQ.DD) GO TO 2
+12        CONTINUE
+          M=N
+2         IF(M.NE.L)THEN
+c           Non-standard:
+c           IF(ITER.EQ.30)PAUSE 'too many iterations'
+            IF(ITER.EQ.30) stop ' TQLI: too many iterations.'
+            ITER=ITER+1
+            G=(D(L+1)-D(L))/(2.*E(L))
+            R=SQRT(G**2+1.)
+            G=D(M)-D(L)+E(L)/(G+SIGN(R,G))
+            S=1.
+            C=1.
+            P=0.
+            DO 14 I=M-1,L,-1
+              F=S*E(I)
+              B=C*E(I)
+              IF(ABS(F).GE.ABS(G))THEN
+                C=G/F
+                R=SQRT(C**2+1.)
+                E(I+1)=F*R
+                S=1./R
+                C=C*S
+              ELSE
+                S=F/G
+                R=SQRT(S**2+1.)
+                E(I+1)=G*R
+                C=1./R
+                S=S*C
+              ENDIF
+              G=D(I+1)-P
+              R=(D(I)-G)*S+2.*C*B
+              P=S*R
+              D(I+1)=G+P
+              G=C*R-B
+              DO 13 K=1,N
+                F=Z(K,I+1)
+                Z(K,I+1)=S*Z(K,I)+C*F
+                Z(K,I)=C*Z(K,I)-S*F
+13            CONTINUE
+14          CONTINUE
+            D(L)=D(L)-P
+            E(L)=G
+            E(M)=0.
+            GO TO 1
+          ENDIF
+15      CONTINUE
+      ENDIF
+      RETURN
+      END
+c-----------------------------------------------------------------------
+      subroutine trier(y,npoint,nmax,ysort,iord,qcrois)
+c
+c     Tri par ordre croissant (qcrois=T) ou non.
+c     Version triviale...
+c     YHS-Jun-2002: Premiere version (Bordeaux).
+c     YHS-Sep-2002: Derniere version (Bordeaux).
+
+      implicit none
+      logical qcrois
+      integer i, icur, iord(*), j, nmax, npoint
+      double precision y(*), ycur, ysort(*)
+      character progrer*10
+
+      progrer='%Trier-Er>'
+
+      if (npoint.gt.nmax) then
+          write(6,'(A,I9,A,I9,A)') progrer,npoint,
+     .  ' points to be sorted, i.e., more than ',nmax,' Sorry.'
+          stop
+      endif
+
+      do i=1,npoint
+         ysort(i)=y(i)
+         iord(i)=i
+      enddo
+
+      do i=1,npoint
+        do j=1,npoint
+          if (qcrois) then
+            if (ysort(i).lt.ysort(j)) then
+                ycur=ysort(i)
+                icur=iord(i)
+                ysort(i)=ysort(j)
+                ysort(j)=ycur
+                iord(i)=iord(j)
+                iord(j)=icur
+            endif
+          else
+            if (ysort(i).gt.ysort(j)) then
+                ycur=ysort(i)
+                icur=iord(i)
+                ysort(i)=ysort(j)
+                ysort(j)=ycur
+                iord(i)=iord(j)
+                iord(j)=icur
+            endif
+          endif
+        enddo
+      enddo
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine string_split(chaine,taille,delimiteur,
+     .                        souschaine,nbremax,nbre)
+c
+c     "Chaine" est coupee en "nbre" "souschaine" de part et d'autre du
+c     "delimiteur"
+c
+c     YHS-Sep-1993: Premiere version (Uppsala).
+c I/O:
+      integer taille, nbremax, nbre
+      character*(*) chaine, souschaine(*), delimiteur
+c Local:
+      integer icar, iprev
+c
+      nbre=1
+      iprev=1
+      souschaine(1)=chaine
+      do icar=1,taille
+         if (chaine(icar:icar).eq.delimiteur) then
+            if (icar-1.ge.iprev) then
+               souschaine(nbre)=chaine(iprev:icar-1)
+               nbre=nbre+1
+               if (nbre.le.nbremax) then
+                  if (icar+1.le.taille.and.
+     .               chaine(icar+1:taille).ne.' ') then
+                     souschaine(nbre)=chaine(icar+1:taille) 
+                  else
+                     nbre=nbre-1
+                     return
+                  endif
+               else
+                  write(6,'(A,I6,A/A)') 
+     .               ' %String_split-Err: more than ',nbremax,
+     .               ' substrings in : ',chaine
+                  return
+               endif
+            endif
+            iprev=icar+1
+         endif
+      enddo
+c
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine stringcl(chaine,nonblancs)
+c
+c     Les caracteres "blancs" de la CHAINE sont retires (a gauche et au milieu).
+c     L'entier NONBLANCS donne la position du dernier caractere.
+c
+c     YHS-Jan-1995: Premiere version (Toulouse).
+c     YHS-Oct-2000: Derniere modification (Bordeaux).
+c I/O:
+      integer nonblancs
+      character*(*) chaine
+c Local:
+      integer icar, ncar, taille
+c Begin:
+      nonblancs=0
+      taille=len(chaine)
+      if (taille.le.0) return
+c
+      if (index(chaine(1:taille),' ').le.0) then
+          nonblancs=taille
+          return
+      endif
+c
+c*****Nettoyage des blancs a gauche.
+c     Premier non-blanc:
+c
+      do icar=1,taille
+         if (chaine(icar:icar).ne.' ') goto 150
+      enddo
+      icar=taille
+ 150  continue
+      chaine=chaine(icar:taille)
+c
+c*****Nettoyage des blancs au milieu.
+c
+          icar=1
+          ncar=1
+ 170      continue
+          icar=icar+1
+          ncar=ncar+1
+          if (chaine(icar:icar).eq.' ') then
+              chaine=chaine(1:icar-1)//chaine(icar+1:taille) 
+              icar=icar-1
+          endif
+          if (ncar.lt.taille-1) goto 170
+c
+      nonblancs=index(chaine,' ')-1
+c
+      return
+      end

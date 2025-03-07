@@ -1,0 +1,92 @@
+#!/bin/bash 
+#
+
+# ==================================== #
+# RESTART OR APPEND A MDENM SIMULATION #
+# ==================================== #
+
+# Extract any possible compacted files
+gunzip *.gz 2>/dev/null
+
+# Set the restarting method
+
+
+# Backup charmm output files
+cnt=$(ls mdenm.out* | wc -l)
+mv mdenm.out mdenm.out.$cnt
+mv md.out md.out.$cnt
+
+# Get the checkpoint files
+rstfile=$(ls -v md-[0-9]*.rst | tail -1)
+
+# Get the excitation number corresponding the checkpoint
+mdnu=$(echo `basename $rstfile .rst | sed 's/md-//'`)
+
+# IF RESTARTING
+if [ $continue = "1" ]; then
+	# Remove anything written in the output files after the checkpoint
+	lines=$(cat rms-proj.out | wc -l)
+	print=$(echo $mdnu*50 | bc)
+
+	# In case the run stopped just before fulfill all checkpoint requirements, we use the previous one
+	if [ $lines -lt $print ]; then
+		rstfile=$(ls -v md-[0-9]*.rst | tail -2 | head -1)
+		mdnu=$(echo `basename $rstfile .rst | sed 's/md-//'`)
+		print=$(echo $mdnu*50 | bc)
+	fi
+  
+	head -"$print" helix.out > tmp; mv tmp helix.out
+	head -"$print" sheet.out > tmp; mv tmp sheet.out
+	head -"$print" coor-proj.out > tmp; mv tmp coor-proj.out
+	head -"$print" rms-proj.out > tmp; mv tmp rms-proj.out
+	head -"$print" ek-proj.out > tmp; mv tmp ek-proj.out
+	head -"$print" vp-proj.out > tmp; mv tmp vp-proj.out 
+
+	# Delete files created after the checkpoint
+	delfile=$(ls -t $rstfile average* {cntrl,vector}*.vec | sed '/md/q' | sed '/md/d'); rm $delfile 2>/dev/null
+	rename=$(ls -t $rstfile cntrl-*.vec | grep 'md' -A1 | tail -1); mv $rename cntrl-vector.vec 2>/dev/null
+	rename=$(ls -t $rstfile vectormodes*.vec | grep 'md' -A1 | tail -1); mv $rename vectormodes.vec 2>/dev/null
+fi
+
+# Get the variables status before the stop
+refhelix=$(grep 'REFHELIX <-' mdenm.out | awk {'print $4'} | tr -d '"')
+refsheet=$(grep 'REFSHEET <-' mdenm.out | awk {'print $4'} | tr -d '"')
+
+qrmscorrec=$(grep -m"$mdnu" -A2 'if @rmscheck .ge. @qrmscorrec then' mdenm.out | tail -1 | awk {'print $4'} | tr -d '"')
+
+prev=$(ls -t "$rstfile" average-* | sed -n '/md-/{n;p;}')
+
+dihecalc=$(grep -m"$mdnu" 'DIHECALC <-' mdenm.out | tail -1 | awk {'print $4'} | tr -d '"')
+enmcalc=$(grep -m"$mdnu" 'ENMCALC <-' mdenm.out | tail -1 | awk {'print $4'} | tr -d '"')
+localcalc=$(grep -m"$mdnu" 'LOCALCALC <-' mdenm.out | tail -1 | awk {'print $4'} | tr -d '"')
+pffcorrec=$(grep -m"$mdnu" 'PFFCORREC <-' mdenm.out | tail -1 | awk {'print $4'} | tr -d '"')
+custcorrec=$(grep -m"$mdnu" 'CUSTCORREC <-' mdenm.out | tail -1 | awk {'print $4'} | tr -d '"')
+
+# Write the values to be streamed to the main program
+echo "set rstfile $rstfile" > continue-mdenm.txt
+echo "set mdnu $mdnu" >> continue-mdenm.txt
+echo "set refhelix $refhelix" >> continue-mdenm.txt
+echo "set refsheet $refsheet" >> continue-mdenm.txt
+echo "set qrmscorrec $qrmscorrec" >> continue-mdenm.txt
+echo "set prev $prev" >> continue-mdenm.txt
+echo "set check 0" >> continue-mdenm.txt
+echo "set wrt 0" >> continue-mdenm.txt
+echo "set switch 0" >> continue-mdenm.txt
+echo "set dihecalc $dihecalc" >> continue-mdenm.txt
+echo "set enmcalc $enmcalc" >> continue-mdenm.txt
+echo "set localcalc $localcalc" >> continue-mdenm.txt
+echo "set pffcorrec $pffcorrec" >> continue-mdenm.txt
+echo "set custcorrec $custcorrec" >> continue-mdenm.txt
+echo "set localcalc $localcalc" >> continue-mdenm.txt
+
+# IF APPENDING
+if [ $continue = "2" ]; then
+  # If appending, set the additional simulation time
+
+
+  timeuser=$(grep 'TIME <-' mdenm.out | awk {'print $4'} | tr -d '"')
+  time=$(echo $timeuser+$addtime | bc)
+  echo "set time $time" >> continue-mdenm.txt
+fi
+
+exit

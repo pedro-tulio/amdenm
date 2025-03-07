@@ -1,0 +1,14 @@
+! WRITE THE VELOCITY PROJECTION
+! The result is in @velo
+
+! Working arrays: sca1, sca2 and sca3
+
+scalar sca1 copy xcomp sele PRTN end
+scalar sca2 copy ycomp sele PRTN end
+scalar sca3 copy zcomp sele PRTN end
+
+scalar sca1 sum sca2
+scalar sca1 sum sca3
+
+scalar sca1 stat sele PRTN end
+set velo ?stot

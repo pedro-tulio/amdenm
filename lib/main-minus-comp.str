@@ -1,0 +1,16 @@
+! CALCULATES THE DIFFERENCE BETWEEN MAIN AND COMP
+! The result is in the main array
+
+! Working arrays: sca1, sca2 and sca3
+
+scalar sca1 copy xcomp sele PRTN end
+scalar sca2 copy ycomp sele PRTN end
+scalar sca3 copy zcomp sele PRTN end
+
+scalar sca1 mult -1
+scalar sca2 mult -1
+scalar sca3 mult -1
+
+scalar x sum sca1 sele PRTN end
+scalar y sum sca2 sele PRTN end
+scalar z sum sca3 sele PRTN end
